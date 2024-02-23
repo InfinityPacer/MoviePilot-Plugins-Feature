@@ -1,6 +1,7 @@
 import re
 import threading
 import time
+import json
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union
@@ -23,21 +24,21 @@ from app.utils.string import StringUtils
 lock = threading.Lock()
 
 
-class BrushFlow(_PluginBase):
+class BrushFlowLowFreq(_PluginBase):
     # 插件名称
-    plugin_name = "站点刷流"
+    plugin_name = "站点刷流（低频版）"
     # 插件描述
-    plugin_desc = "自动托管刷流，将会提高对应站点的访问频率。"
+    plugin_desc = "自动托管刷流，将会提高对应站点的访问频率。（基于官方插件BrushFlow二次开发）"
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
-    plugin_author = "jxxghp"
+    plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
-    author_url = "https://github.com/jxxghp"
+    author_url = "https://github.com/InfinityPacer"
     # 插件配置项ID前缀
-    plugin_config_prefix = "brushflow_"
+    plugin_config_prefix = "brushflowlowfreq_"
     # 加载顺序
     plugin_order = 21
     # 可使用的用户级别
@@ -232,6 +233,7 @@ class BrushFlow(_PluginBase):
 
                 # 启动任务
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                logger.info(f"执行自定义刷流任务中")
                 logger.info(f"站点刷流服务启动，周期：{self._cron}分钟")
                 try:
                     self._scheduler.add_job(self.brush, 'interval', minutes=self._cron)
@@ -1288,7 +1290,7 @@ class BrushFlow(_PluginBase):
             return
 
         with lock:
-            logger.info(f"开始执行刷流任务 ...")
+            logger.info(f"开始执行自定义刷流任务 ...")
             # 读取种子记录
             task_info: Dict[str, dict] = self.get_data("torrents") or {}
             if task_info:
@@ -1304,6 +1306,36 @@ class BrushFlow(_PluginBase):
                 "count": 0,
                 "deleted": 0,
             }
+
+            # 同时下载任务数
+            downloads = self.__get_downloading_count()
+            if self._maxdlcount and downloads >= int(self._maxdlcount):
+                logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {self._maxdlcount}，停止新增任务")
+                return
+            # 获取下载器的下载信息
+            downloader_info = self.__get_downloader_info()
+            if downloader_info:
+                current_upload_speed = downloader_info.upload_speed or 0
+                current_download_speed = downloader_info.download_speed or 0
+                # 总上传带宽(KB/s)
+                if self._maxupspeed \
+                        and current_upload_speed >= float(self._maxupspeed) * 1024:
+                    logger.warn(f"当前总上传带宽 {StringUtils.str_filesize(current_upload_speed)} "
+                                f"已达到最大值 {self._maxupspeed} KB/s，暂时停止新增任务")
+                    return
+                # 总下载带宽(KB/s)
+                if self._maxdlspeed \
+                        and current_download_speed >= float(self._maxdlspeed) * 1024:
+                    logger.warn(f"当前总下载带宽 {StringUtils.str_filesize(current_download_speed)} "
+                                f"已达到最大值 {self._maxdlspeed} KB/s，暂时停止新增任务")
+                    return
+            # 保种体积（GB）
+            if self._disksize \
+                    and (torrents_size + torrent.size) > float(self._disksize) * 1024 ** 3:
+                logger.warn(f"当前做种体积 {StringUtils.str_filesize(torrents_size)} "
+                            f"已超过保种体积 {self._disksize}，停止新增任务")
+                return
+
             # 处理所有站点
             for siteid in self._brushsites:
                 siteinfo = self.siteoper.get(siteid)
@@ -1317,6 +1349,15 @@ class BrushFlow(_PluginBase):
                     continue
                 # 按pubdate降序排列
                 torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
+
+                # 将Torrent实例的列表转换为字典的列表
+                # torrent_dicts = [torrent.to_dict() for torrent in torrents]
+
+                # 将字典的列表序列化为JSON
+                # json_str = json.dumps(torrent_dicts, ensure_ascii=False)
+                
+                # logger.info(f"站点 {siteinfo.name} 获取到种子信息：{json_str}")
+
                 # 过滤种子
                 for torrent in torrents:
                     # 控重
@@ -1387,29 +1428,6 @@ class BrushFlow(_PluginBase):
                     downloads = self.__get_downloading_count()
                     if self._maxdlcount and downloads >= int(self._maxdlcount):
                         logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {self._maxdlcount}，停止新增任务")
-                        break
-                    # 获取下载器的下载信息
-                    downloader_info = self.__get_downloader_info()
-                    if downloader_info:
-                        current_upload_speed = downloader_info.upload_speed or 0
-                        current_download_speed = downloader_info.download_speed or 0
-                        # 总上传带宽(KB/s)
-                        if self._maxupspeed \
-                                and current_upload_speed >= float(self._maxupspeed) * 1024:
-                            logger.warn(f"当前总上传带宽 {StringUtils.str_filesize(current_upload_speed)} "
-                                        f"已达到最大值 {self._maxupspeed} KB/s，暂时停止新增任务")
-                            break
-                        # 总下载带宽(KB/s)
-                        if self._maxdlspeed \
-                                and current_download_speed >= float(self._maxdlspeed) * 1024:
-                            logger.warn(f"当前总下载带宽 {StringUtils.str_filesize(current_download_speed)} "
-                                        f"已达到最大值 {self._maxdlspeed} KB/s，暂时停止新增任务")
-                            break
-                    # 保种体积（GB）
-                    if self._disksize \
-                            and (torrents_size + torrent.size) > float(self._disksize) * 1024 ** 3:
-                        logger.warn(f"当前做种体积 {StringUtils.str_filesize(torrents_size)} "
-                                    f"已超过保种体积 {self._disksize}，停止新增任务")
                         break
                     # 添加下载任务
                     hash_string = self.__download(torrent=torrent)
