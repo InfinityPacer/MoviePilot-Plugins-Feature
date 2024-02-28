@@ -86,6 +86,7 @@ class BrushFlowLowFreq(_PluginBase):
     _clear_task = False
 
     def init_plugin(self, config: dict = None):
+        logger.info(f"站点刷流服务初始化")
         self.siteshelper = SitesHelper()
         self.siteoper = SiteOper()
         self.torrents = TorrentsChain()
@@ -232,26 +233,44 @@ class BrushFlowLowFreq(_PluginBase):
                 if not self._brushsites or not self._downloader:
                     return
 
-                # 启动任务
-                self._task_enable = True
+                self._task_enable = self._enabled
 
-                # 仅一次
-                if self._onlyonce:
+                logger.info(f"站点刷流服务状态 {self._task_enable}")
+                
+                # 检查是否有任务需要开启
+                if self._task_enable or self._onlyonce:
+                    # 实例化 BackgroundScheduler 对象
                     self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-                    logger.info(f"站点刷流服务启动，立即运行一次")
-                    self._scheduler.add_job(self.brush, 'date',
-                                            run_date=datetime.now(
-                                                tz=pytz.timezone(settings.TZ)
-                                            ) + timedelta(seconds=3),
-                                            name="站点刷流服务")
-                    # 关闭一次性开关
-                    self._onlyonce = False
-                    self.__update_config()
-                    if self._scheduler.get_jobs():
-                        # 增加检查任务
+
+                    # 如果开启了任务，则轮询定时任务
+                    if self._task_enable:
+                        logger.info(f"站点刷流服务启动，时间间隔 {self._cron} 分钟")
+                        logger.info(f"站点刷流检查服务启动，时间间隔 {self._check_interval} 分钟")
                         self._scheduler.add_job(self.check, 'interval',
                                                 minutes=self._check_interval,
                                                 name="站点刷流检查服务")
+
+                    # 仅一次
+                    if self._onlyonce:
+                        logger.info(f"站点刷流服务启动，立即运行一次")
+                        self._scheduler.add_job(self.brush, 'date',
+                                                run_date=datetime.now(
+                                                    tz=pytz.timezone(settings.TZ)
+                                                ) + timedelta(seconds=3),
+                                                name="站点刷流服务")
+                        
+                        logger.info(f"站点刷流检查服务启动，立即运行一次")
+                        self._scheduler.add_job(self.check, 'date',
+                                            run_date=datetime.now(
+                                                tz=pytz.timezone(settings.TZ)
+                                            ) + timedelta(seconds=3),
+                                            name="站点刷流检查服务")
+                        # 关闭一次性开关
+                        self._onlyonce = False
+                        self.__update_config()
+
+                    # 存在任务则启动任务
+                    if self._scheduler.get_jobs():
                         # 启动服务
                         self._scheduler.print_jobs()
                         self._scheduler.start()
