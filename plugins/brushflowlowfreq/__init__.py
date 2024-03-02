@@ -31,7 +31,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -84,6 +84,7 @@ class BrushFlowLowFreq(_PluginBase):
     _dl_speed = 0
     _save_path = ""
     _clear_task = False
+    _except_tags = False
 
     def init_plugin(self, config: dict = None):
         logger.info(f"站点刷流服务初始化")
@@ -118,6 +119,7 @@ class BrushFlowLowFreq(_PluginBase):
             self._dl_speed = config.get("dl_speed")
             self._save_path = config.get("save_path")
             self._clear_task = config.get("clear_task")
+            self._except_tags = config.get("except_tags")
 
             # 过滤掉已删除的站点
             self._brushsites = [site.get("id") for site in self.sites.get_indexers() if
@@ -234,9 +236,10 @@ class BrushFlowLowFreq(_PluginBase):
                     return
 
                 self._task_enable = self._enabled
-
-                logger.info(f"站点刷流服务状态 {self._task_enable}")
                 
+                status_desc = "开启" if self._task_enable else "关闭"
+                logger.info(f"站点刷流服务状态：{status_desc}")
+
                 # 检查是否有任务需要开启
                 if self._task_enable or self._onlyonce:
                     # 实例化 BackgroundScheduler 对象
@@ -790,6 +793,22 @@ class BrushFlowLowFreq(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'except_tags',
+                                            'label': '删种排除MoviePilot标签',
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -821,6 +840,7 @@ class BrushFlowLowFreq(_PluginBase):
             "notify": True,
             "onlyonce": False,
             "clear_task": False,
+            "except_tags": True,
             "freeleech": "free",
             "hr": "yes",
         }
@@ -1315,7 +1335,8 @@ class BrushFlowLowFreq(_PluginBase):
             "up_speed": self._up_speed,
             "dl_speed": self._dl_speed,
             "save_path": self._save_path,
-            "clear_task": self._clear_task
+            "clear_task": self._clear_task,
+            "except_tags": self._except_tags
         })
 
     def brush(self):
@@ -1436,6 +1457,8 @@ class BrushFlowLowFreq(_PluginBase):
                             continue
                     # 计算发布时间，将字符串转换为时间
                     pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
+                    # 部分站点的发布时间需要特殊处理
+                    pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
                     # 发布时间（分钟）
                     if self._pubtime:
                         pubtimes = str(self._pubtime).split("-")
@@ -1456,6 +1479,7 @@ class BrushFlowLowFreq(_PluginBase):
                     if self._maxdlcount and downloads >= int(self._maxdlcount):
                         logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {self._maxdlcount}，停止新增任务")
                         break
+                    
                     # 添加下载任务
                     hash_string = self.__download(torrent=torrent)
                     if not hash_string:
@@ -1529,6 +1553,12 @@ class BrushFlowLowFreq(_PluginBase):
                 logger.warn(f"刷流任务在下载器中不存在，清除记录")
                 self.save_data("torrents", {})
                 return
+            
+            # 排除MoviePilot种子
+            if self._except_tags:
+                torrents = self.filter_torrents_by_tag(torrents=torrents,
+                                                       exclude_tag=settings.TORRENT_TAG)
+            
             # 检查种子状态，判断是否要删种
             remove_torrents = []
             for torrent in torrents:
@@ -1619,6 +1649,38 @@ class BrushFlowLowFreq(_PluginBase):
                     task_info[torrent.get("hash")].update({
                         "deleted": True,
                     })
+                    
+            # 处理已经在下载器中找不到的种子，更新统计以及任务状态
+            torrent_all_hashes = self.__get_all_hashes(torrents)
+            missing_hashes = [hash_value for hash_value in check_hashs if hash_value not in torrent_all_hashes]
+            # 筛选出尚未标记为已删除的missing_hashes
+            not_deleted_hashes = [hash_value for hash_value in missing_hashes if not task_info[hash_value].get("deleted")]
+
+            if not_deleted_hashes:
+                # 记录即将被标记为删除的任务数量
+                num_deleted = len(not_deleted_hashes)
+                
+                # 处理每个符合条件的任务
+                for hash_value in not_deleted_hashes:
+                    # 获取对应的任务信息
+                    torrent_info = task_info[hash_value]
+                    # 获取site_name和torrent_title
+                    site_name = torrent_info["site_name"]
+                    torrent_title = torrent_info["title"]
+                    
+                    # 记录日志
+                    logger.info(f"下载器中找不到种子，可能已经被删除，种子信息:{torrent_info}")
+                    
+                    # 发送删除消息
+                    self.__send_delete_message(site_name=site_name,
+                                            torrent_title=torrent_title,
+                                            reason="下载器中找不到种子")
+                    # 标记该任务为已删除
+                    task_info[hash_value]["deleted"] = True
+
+                # 更新统计状态，一次性添加所有的删除数量
+                statistic_info["deleted"] = statistic_info.get("deleted", 0) + num_deleted
+                    
             # 统计总上传量、下载量
             total_uploaded = 0
             total_downloaded = 0
@@ -1709,6 +1771,25 @@ class BrushFlowLowFreq(_PluginBase):
         except Exception as e:
             print(str(e))
             return ""
+        
+    def __get_all_hashes(self, torrents):
+        """
+        获取torrents列表中所有种子的Hash值
+
+        :param torrents: 包含种子信息的列表
+        :return: 包含所有Hash值的列表
+        """
+        try:
+            all_hashes = []
+            for torrent in torrents:
+                # 根据下载器类型获取Hash值
+                hash_value = torrent.get("hash") if self._downloader == "qbittorrent" else torrent.hashString
+                if hash_value:
+                    all_hashes.append(hash_value)
+            return all_hashes
+        except Exception as e:
+            print(str(e))
+            return []
 
     def __get_label(self, torrent: Any):
         """
@@ -1817,6 +1898,8 @@ class BrushFlowLowFreq(_PluginBase):
             total_size = torrent.get("total_size")
             # 添加时间
             add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(torrent.get("added_on") or 0))
+            # 种子标签
+            tags = torrent.get("tags")
         # TR
         else:
             # ID
@@ -1857,6 +1940,8 @@ class BrushFlowLowFreq(_PluginBase):
             # 添加时间
             add_time = time.strftime('%Y-%m-%d %H:%M:%S',
                                      time.localtime(torrent.date_added.timestamp() if torrent.date_added else 0))
+            # 种子标签
+            tags = torrent.get("tags")
 
         return {
             "hash": torrent_id,
@@ -1869,7 +1954,8 @@ class BrushFlowLowFreq(_PluginBase):
             "iatime": iatime,
             "dltime": dltime,
             "total_size": total_size,
-            "add_time": add_time
+            "add_time": add_time,
+            "tags": tags
         }
 
     def __send_delete_message(self, site_name: str, torrent_title: str, reason: str):
@@ -1980,3 +2066,45 @@ class BrushFlowLowFreq(_PluginBase):
         except Exception as e:
             print(str(e))
             return 0
+    
+    @staticmethod        
+    def __adjust_site_pubminutes(pub_minutes: float, torrent: TorrentInfo) -> float:
+        """
+        处理部分站点的时区逻辑
+        """
+        try:
+            if not torrent:
+                return pub_minutes
+            
+            if torrent.site == 3 or torrent.site_name == "我堡":
+                # 获取当前时区的UTC偏移量（以秒为单位）
+                utc_offset_seconds = time.timezone
+
+                # 将UTC偏移量转换为分钟
+                utc_offset_minutes = utc_offset_seconds / 60
+                
+                # 增加UTC偏移量到pub_minutes
+                adjusted_pub_minutes = pub_minutes + utc_offset_minutes
+                            
+                return adjusted_pub_minutes
+            
+            return adjusted_pub_minutes
+        except Exception as e:
+            logger.error(str(e))
+            return 0
+
+    def filter_torrents_by_tag(self, torrents, exclude_tag):
+        """
+        根据标签过滤torrents
+        """
+        filtered_torrents = []
+        for torrent in torrents:
+            # 使用 __get_label 方法获取每个 torrent 的标签列表
+            labels = self.__get_label(torrent)
+            # 如果排除的标签不在这个列表中，则添加到过滤后的列表
+            if exclude_tag not in labels:
+                filtered_torrents.append(torrent)
+        return filtered_torrents
+                    
+                    
+                    
