@@ -35,7 +35,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -1417,8 +1417,8 @@ class BrushFlowLowFreq(_PluginBase):
             # 保种体积（GB）
             if self._disksize \
                     and torrents_size > float(self._disksize) * 1024 ** 3:
-                logger.warn(f"当前做种体积 {StringUtils.str_filesize(torrents_size)} "
-                            f"已超过保种体积 {self._disksize}，停止新增任务")
+                logger.warn(f"当前做种体积 {self.__bytes_to_gb(torrents_size):.2f} GB "
+                            f"已超过保种体积 {self._disksize} GB，停止新增任务")
                 return
 
             # 处理所有站点
@@ -1456,11 +1456,17 @@ class BrushFlowLowFreq(_PluginBase):
                     if self._hr == "yes" and torrent.hit_and_run:
                         continue
                     # 包含规则
-                    if self._include and not re.search(r"%s" % self._include, torrent.title, re.I):
-                        continue
+                    if self._include:
+                        # 检查 torrent.title 或 torrent.description 是否匹配 self._include 正则表达式
+                        if not (re.search(r"%s" % self._include, torrent.title, re.I) or 
+                                re.search(r"%s" % self._include, torrent.description, re.I)):
+                            continue  # 如果都不匹配，跳过当前 torrent
                     # 排除规则
-                    if self._exclude and re.search(r"%s" % self._exclude, torrent.title, re.I):
-                        continue
+                    if self._exclude:
+                        # 检查 torrent.title 或 torrent.description 是否匹配 self._exclude 正则表达式
+                        if (re.search(r"%s" % self._exclude, torrent.title, re.I) or 
+                            re.search(r"%s" % self._exclude, torrent.description, re.I)):
+                            continue  # 如果任意一个匹配，跳过当前 torrent
                     # 种子大小（GB）
                     if self._size:
                         sizes = str(self._size).split("-")
@@ -1516,9 +1522,9 @@ class BrushFlowLowFreq(_PluginBase):
                     # 保种体积（GB）
                     if self._disksize \
                             and (torrents_size + torrent.size) > float(self._disksize) * 1024 ** 3:
-                        logger.warn(f"当前做种体积 {StringUtils.str_filesize(torrents_size)} "
-                                    f"已超过保种体积 {self._disksize}，停止新增任务")
-                        break
+                        logger.warn(f"当前做种体积 {self.__bytes_to_gb(torrents_size + torrent.size):.2f} GB "
+                                    f"已超过保种体积 {self._disksize} GB，停止新增任务")
+                        break                    
                     # 添加下载任务
                     hash_string = self.__download(torrent=torrent)
                     if not hash_string:
@@ -2183,3 +2189,12 @@ class BrushFlowLowFreq(_PluginBase):
          
         # 返回未被排除的种子列表
         return included_torrents
+    
+    def __bytes_to_gb(self, size_in_bytes: int) -> float:
+        """
+        将字节单位的大小转换为千兆字节（GB）。
+
+        :param size_in_bytes: 文件大小，单位为字节。
+        :return: 文件大小，单位为千兆字节（GB）。
+        """
+        return size_in_bytes / (1024 ** 3)
