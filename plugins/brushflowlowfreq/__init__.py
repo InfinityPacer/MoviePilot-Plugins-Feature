@@ -3,7 +3,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from threading import Event
-from typing import Any, List, Dict, Tuple, Optional, Union
+from typing import Any, List, Dict, Tuple, Optional, Union, Set
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -12,6 +12,7 @@ from app import schemas
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
 from app.db.site_oper import SiteOper
+from app.db.subscribe_oper import SubscribeOper
 from app.helper.sites import SitesHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
@@ -24,6 +25,9 @@ lock = threading.Lock()
 
 
 class BrushFlowLowFreq(_PluginBase):
+    
+    # region 全局定义
+    
     # 插件名称
     plugin_name = "站点刷流（低频版）"
     # 插件描述
@@ -85,6 +89,9 @@ class BrushFlowLowFreq(_PluginBase):
     _save_path = ""
     _clear_task = False
     _except_tags = False
+    _except_subscribe = False
+    
+    # endregion
 
     def init_plugin(self, config: dict = None):
         logger.info(f"站点刷流服务初始化")
@@ -92,6 +99,8 @@ class BrushFlowLowFreq(_PluginBase):
         self.siteoper = SiteOper()
         self.torrents = TorrentsChain()
         self.sites = SitesHelper()
+        self.subscribeoper = SubscribeOper()
+        
         if config:
             self._enabled = config.get("enabled")
             self._notify = config.get("notify")
@@ -120,6 +129,7 @@ class BrushFlowLowFreq(_PluginBase):
             self._save_path = config.get("save_path")
             self._clear_task = config.get("clear_task")
             self._except_tags = config.get("except_tags")
+            self._except_subscribe = config.get("except_subscribe")
 
             # 过滤掉已删除的站点
             self._brushsites = [site.get("id") for site in self.sites.get_indexers() if
@@ -805,7 +815,23 @@ class BrushFlowLowFreq(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'except_tags',
-                                            'label': '删种排除MoviePilot标签',
+                                            'label': '删种排除MoviePilot任务',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'except_subscribe',
+                                            'label': '排除订阅（实验性功能）',
                                         }
                                     }
                                 ]
@@ -841,6 +867,7 @@ class BrushFlowLowFreq(_PluginBase):
             "onlyonce": False,
             "clear_task": False,
             "except_tags": True,
+            "except_subscribe": True,
             "freeleech": "free",
             "hr": "yes",
         }
@@ -1336,7 +1363,8 @@ class BrushFlowLowFreq(_PluginBase):
             "dl_speed": self._dl_speed,
             "save_path": self._save_path,
             "clear_task": self._clear_task,
-            "except_tags": self._except_tags
+            "except_tags": self._except_tags,
+            "except_subscribe": self._except_subscribe
         })
 
     def brush(self):
@@ -1388,7 +1416,7 @@ class BrushFlowLowFreq(_PluginBase):
                     return
             # 保种体积（GB）
             if self._disksize \
-                    and (torrents_size + torrent.size) > float(self._disksize) * 1024 ** 3:
+                    and torrents_size > float(self._disksize) * 1024 ** 3:
                 logger.warn(f"当前做种体积 {StringUtils.str_filesize(torrents_size)} "
                             f"已超过保种体积 {self._disksize}，停止新增任务")
                 return
@@ -1404,8 +1432,14 @@ class BrushFlowLowFreq(_PluginBase):
                 if not torrents:
                     logger.info(f"站点 {siteinfo.name} 没有获取到种子")
                     continue
+                
+                # 排除包含订阅的种子
+                if(self._except_subscribe):
+                    torrents = self.__filter_torrents_contains_subscribe(torrents=torrents)
+                
                 # 按pubdate降序排列
                 torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
+                                
                 # 过滤种子
                 for torrent in torrents:
                     # 控重
@@ -1479,7 +1513,12 @@ class BrushFlowLowFreq(_PluginBase):
                     if self._maxdlcount and downloads >= int(self._maxdlcount):
                         logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {self._maxdlcount}，停止新增任务")
                         break
-                    
+                    # 保种体积（GB）
+                    if self._disksize \
+                            and (torrents_size + torrent.size) > float(self._disksize) * 1024 ** 3:
+                        logger.warn(f"当前做种体积 {StringUtils.str_filesize(torrents_size)} "
+                                    f"已超过保种体积 {self._disksize}，停止新增任务")
+                        break
                     # 添加下载任务
                     hash_string = self.__download(torrent=torrent)
                     if not hash_string:
@@ -1556,9 +1595,9 @@ class BrushFlowLowFreq(_PluginBase):
             
             # 排除MoviePilot种子
             if self._except_tags:
-                torrents = self.filter_torrents_by_tag(torrents=torrents,
+                torrents = self.__filter_torrents_by_tag(torrents=torrents,
                                                        exclude_tag=settings.TORRENT_TAG)
-            
+                            
             # 检查种子状态，判断是否要删种
             remove_torrents = []
             for torrent in torrents:
@@ -2067,7 +2106,7 @@ class BrushFlowLowFreq(_PluginBase):
             print(str(e))
             return 0
     
-    @staticmethod        
+    @staticmethod
     def __adjust_site_pubminutes(pub_minutes: float, torrent: TorrentInfo) -> float:
         """
         处理部分站点的时区逻辑
@@ -2075,7 +2114,7 @@ class BrushFlowLowFreq(_PluginBase):
         try:
             if not torrent:
                 return pub_minutes
-            
+                        
             if torrent.site == 3 or torrent.site_name == "我堡":
                 # 获取当前时区的UTC偏移量（以秒为单位）
                 utc_offset_seconds = time.timezone
@@ -2088,23 +2127,59 @@ class BrushFlowLowFreq(_PluginBase):
                             
                 return adjusted_pub_minutes
             
-            return adjusted_pub_minutes
+            return pub_minutes
         except Exception as e:
             logger.error(str(e))
             return 0
 
-    def filter_torrents_by_tag(self, torrents, exclude_tag):
+    def __filter_torrents_by_tag(self, torrents: List[Any], exclude_tag: str) -> List[Any]:
         """
         根据标签过滤torrents
         """
-        filtered_torrents = []
+        filter_torrents = []
         for torrent in torrents:
             # 使用 __get_label 方法获取每个 torrent 的标签列表
             labels = self.__get_label(torrent)
             # 如果排除的标签不在这个列表中，则添加到过滤后的列表
             if exclude_tag not in labels:
-                filtered_torrents.append(torrent)
-        return filtered_torrents
-                    
-                    
-                    
+                filter_torrents.append(torrent)
+        return filter_torrents
+
+    def __get_subscribe_titles(self) -> Set[str]:
+        """
+        获取当前订阅的所有标题，返回一个不包含None的集合
+        """
+        self.subscribeoper = SubscribeOper()
+        subscribes = self.subscribeoper.list()
+
+        # 使用 filter() 函数筛选出有 'name' 属性且该属性值不为 None 的 Subscribe 对象
+        # 然后使用 map() 函数获取每个对象的 'name' 属性值
+        # 最后，使用 set() 函数将结果转换为集合，自动去除重复项和 None
+        subscribe_titles = set(filter(None, map(lambda sub: getattr(sub, 'name', None), subscribes)))
+
+        # 返回不包含 None 的名称集合
+        return subscribe_titles
+    
+    def __filter_torrents_contains_subscribe(self, torrents : Any):
+        subscribe_titles = self.__get_subscribe_titles()
+        logger.info(f"当前订阅的名称集合为：{subscribe_titles}")
+
+        # 初始化两个列表，一个用于收集未被排除的种子，一个用于记录被排除的种子
+        included_torrents = []
+        excluded_torrents = []
+
+        # 单次遍历处理
+        for torrent in torrents:
+            if any(title in torrent.title or title in torrent.description for title in subscribe_titles):
+                # 如果种子的标题或描述包含订阅标题中的任一项，则记录为被排除
+                excluded_torrents.append(torrent)
+                logger.info(f"命中订阅内容，排除种子：{torrent.title}|{torrent.description}")
+            else:
+                # 否则，收集为未被排除的种子
+                included_torrents.append(torrent)
+        
+        if not excluded_torrents:
+            logger.info(f"没有命中订阅内容，不需要排除种子")
+         
+        # 返回未被排除的种子列表
+        return included_torrents
