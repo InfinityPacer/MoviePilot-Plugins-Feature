@@ -23,6 +23,53 @@ from app.utils.string import StringUtils
 
 lock = threading.Lock()
 
+class BrushConfig:
+    """
+    刷流配置
+    """
+    def __init__(self, config: dict):
+        self.enabled = config.get("enabled", False)
+        self.notify = config.get("notify", True)
+        self.onlyonce = config.get("onlyonce", False)
+        self.brushsites = config.get("brushsites", [])
+        self.downloader = config.get("downloader", "qbittorrent")
+        self.disksize = self.__parse_number(config.get("disksize"))
+        self.freeleech = config.get("freeleech", "free")
+        self.hr = config.get("hr", "no")
+        self.maxupspeed = self.__parse_number(config.get("maxupspeed"))
+        self.maxdlspeed = self.__parse_number(config.get("maxdlspeed"))
+        self.maxdlcount = self.__parse_number(config.get("maxdlcount"))
+        self.include = config.get("include")
+        self.exclude = config.get("exclude")
+        self.size = config.get("size")
+        self.seeder = config.get("seeder")
+        self.pubtime = config.get("pubtime")
+        self.seed_time = self.__parse_number(config.get("seed_time"))
+        self.seed_ratio = self.__parse_number(config.get("seed_ratio"))
+        self.seed_size = self.__parse_number(config.get("seed_size"))
+        self.download_time = self.__parse_number(config.get("download_time"))
+        self.seed_avgspeed = self.__parse_number(config.get("seed_avgspeed"))
+        self.seed_inactivetime = self.__parse_number(config.get("seed_inactivetime"))
+        self.up_speed = self.__parse_number(config.get("up_speed"))
+        self.dl_speed = self.__parse_number(config.get("dl_speed"))
+        self.save_path = config.get("save_path")
+        self.clear_task = config.get("clear_task", False)
+        self.except_tags = config.get("except_tags", True)
+        self.except_subscribe = config.get("except_subscribe", True)
+
+    @staticmethod
+    def __parse_number(value):
+        if not value:
+            return value
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0
+        
+    def __str__(self):
+        attrs = vars(self)
+        attrs_str = ', '.join(f"{k}: {v}" for k, v in attrs.items())
+        return f"{self.__class__.__name__}({attrs_str})"
 
 class BrushFlowLowFreq(_PluginBase):
     
@@ -54,6 +101,8 @@ class BrushFlowLowFreq(_PluginBase):
     sites = None
     qb = None
     tr = None
+    # 刷流配置
+    _brush_config = None
     # Brush任务是否启动
     _task_brush_enable = False
     # Brush定时
@@ -63,38 +112,10 @@ class BrushFlowLowFreq(_PluginBase):
     # 退出事件
     _event = Event()
     _scheduler = None
-    _enabled = False
-    _notify = True
-    _onlyonce = False
-    _brushsites = []
-    _downloader = "qbittorrent"
-    _disksize = 0
-    _freeleech = "free"
-    _hr = "no"
-    _maxupspeed = 0
-    _maxdlspeed = 0
-    _maxdlcount = 0
-    _include = ""
-    _exclude = ""
-    _size = 0
-    _seeder = 0
-    _pubtime = 0
-    _seed_time = 0
-    _seed_ratio = 0
-    _seed_size = 0
-    _download_time = 0
-    _seed_avgspeed = 0
-    _seed_inactivetime = 0
-    _up_speed = 0
-    _dl_speed = 0
-    _save_path = ""
-    _clear_task = False
-    _except_tags = False
-    _except_subscribe = False
     
     # endregion
 
-    def init_plugin(self, config: dict = None):
+    def init_plugin(self, config: dict = None): 
         logger.info(f"站点刷流服务初始化")
         self.siteshelper = SitesHelper()
         self.siteoper = SiteOper()
@@ -103,184 +124,85 @@ class BrushFlowLowFreq(_PluginBase):
         self.subscribeoper = SubscribeOper()
         self._task_brush_enable = False
         
-        if config:
-            self._enabled = config.get("enabled")
-            self._notify = config.get("notify")
-            self._onlyonce = config.get("onlyonce")
-            self._brushsites = config.get("brushsites")
-            self._downloader = config.get("downloader")
-            self._disksize = config.get("disksize")
-            self._freeleech = config.get("freeleech")
-            self._hr = config.get("hr")
-            self._maxupspeed = config.get("maxupspeed")
-            self._maxdlspeed = config.get("maxdlspeed")
-            self._maxdlcount = config.get("maxdlcount")
-            self._include = config.get("include")
-            self._exclude = config.get("exclude")
-            self._size = config.get("size")
-            self._seeder = config.get("seeder")
-            self._pubtime = config.get("pubtime")
-            self._seed_time = config.get("seed_time")
-            self._seed_ratio = config.get("seed_ratio")
-            self._seed_size = config.get("seed_size")
-            self._download_time = config.get("download_time")
-            self._seed_avgspeed = config.get("seed_avgspeed")
-            self._seed_inactivetime = config.get("seed_inactivetime")
-            self._up_speed = config.get("up_speed")
-            self._dl_speed = config.get("dl_speed")
-            self._save_path = config.get("save_path")
-            self._clear_task = config.get("clear_task")
-            self._except_tags = config.get("except_tags")
-            self._except_subscribe = config.get("except_subscribe")
+        if not config:
+            logger.info("站点刷流任务出错，无法获取插件配置")
+            return False
+        
+        self._brush_config = BrushConfig(config=config)
+        
+        # 如果配置校验没有通过，那么这里修改配置文件后退出
+        if not self.__validate_and_fix_config(config=config):
+            self._brush_config = BrushConfig(config=config)
+            self.__update_config()
+            return
+        
+        brush_config = self.__get_brush_config()
+                
+        # 这里先过滤掉已删除的站点并保存
+        brush_config.brushsites = [
+            site.get("id") for site in self.sites.get_indexers() 
+            if not site.get("public") and site.get("id") in brush_config.brushsites
+        ]
+        self.__update_config()
 
-            # 过滤掉已删除的站点
-            self._brushsites = [site.get("id") for site in self.sites.get_indexers() if
-                                not site.get("public") and site.get("id") in self._brushsites]
+        if brush_config.clear_task:
+            # 清除统计数据
+            self.save_data("statistic", {})
+            # 清除种子记录
+            self.save_data("torrents", {})
+            # 关闭一次性开关
+            brush_config.clear_task = False
+            self.__update_config()
+            
+        # 停止现有任务
+        self.stop_service()
+        
+        if not self.__setup_downloader():
+            return
 
-            # 保存配置
+        # 如果下载器都没有配置，那么这里也不需要继续
+        if not brush_config.downloader:
+            logger.info(f"站点刷流服务停止，没有配置下载器")
+            return
+
+        # 如果站点都没有配置，则不开启定时刷流服务
+        if not brush_config.brushsites:
+            logger.info(f"站点刷流Brush定时服务停止，没有配置站点")
+
+        # 如果开启&存在站点时，才需要启用后台任务
+        self._task_brush_enable = brush_config.enabled and brush_config.brushsites
+        
+        # 检查是否启用了一次性任务
+        if brush_config.onlyonce:
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+            
+            logger.info(f"站点刷流Brush服务启动，立即运行一次")
+            self._scheduler.add_job(self.brush, 'date',
+                                    run_date=datetime.now(
+                                        tz=pytz.timezone(settings.TZ)
+                                    ) + timedelta(seconds=3),
+                                    name="站点刷流Brush服务")
+            
+            logger.info(f"站点刷流Check服务启动，立即运行一次")
+            self._scheduler.add_job(self.check, 'date',
+                                    run_date=datetime.now(
+                                        tz=pytz.timezone(settings.TZ)
+                                    ) + timedelta(seconds=3),
+                                    name="站点刷流Check服务")
+            
+            # 关闭一次性开关
+            brush_config.onlyonce = False
             self.__update_config()
 
-            if self._clear_task:
-                # 清除统计数据
-                self.save_data("statistic", {})
-                # 清除种子记录
-                self.save_data("torrents", {})
-                # 关闭一次性开关
-                self._clear_task = False
-                self.__update_config()
-
-            # 停止现有任务
-            self.stop_service()
-            
-            if self._enabled or self._onlyonce:
-                self.qb = Qbittorrent()
-                self.tr = Transmission()
-                # 检查配置
-                if self._downloader == "qbittorrent":
-                    if self.qb.is_inactive():
-                        logger.error("站点刷流任务出错：Qbittorrent未连接")
-                        self.systemmessage.put("站点刷流任务出错：Qbittorrent未连接")
-                        return
-                elif self._downloader == "transmission":
-                    if self.tr.is_inactive():
-                        logger.error("站点刷流任务出错：Transmission未连接")
-                        self.systemmessage.put("站点刷流任务出错：Transmission未连接")
-                        return
-                if self._disksize and not StringUtils.is_number(self._disksize):
-                    logger.error(f"站点刷流任务出错，保种体积设置错误：{self._disksize}")
-                    self.systemmessage.put(f"站点刷流任务出错，保种体积设置错误：{self._disksize}")
-                    self._disksize = 0
-                    return
-                if self._maxupspeed and not StringUtils.is_number(self._maxupspeed):
-                    logger.error(f"站点刷流任务出错，总上传带宽设置错误：{self._maxupspeed}")
-                    self.systemmessage.put(f"站点刷流任务出错，总上传带宽设置错误：{self._maxupspeed}")
-                    self._maxupspeed = 0
-                    return
-                if self._maxdlspeed and not StringUtils.is_number(self._maxdlspeed):
-                    logger.error(f"站点刷流任务出错，总下载带宽设置错误：{self._maxdlspeed}")
-                    self.systemmessage.put(f"站点刷流任务出错，总下载带宽设置错误：{self._maxdlspeed}")
-                    self._maxdlspeed = 0
-                    return
-                if self._maxdlcount and not StringUtils.is_number(self._maxdlcount):
-                    logger.error(f"站点刷流任务出错，同时下载任务数设置错误：{self._maxdlcount}")
-                    self.systemmessage.put(f"站点刷流任务出错，同时下载任务数设置错误：{self._maxdlcount}")
-                    self._maxdlcount = 0
-                    return
-                if self._size:
-                    size = str(self._size).split("-")[0]
-                    if not StringUtils.is_number(size):
-                        logger.error(f"站点刷流任务出错，种子大小设置错误：{self._size}")
-                        self.systemmessage.put(f"站点刷流任务出错，种子大小设置错误：{self._size}")
-                        self._size = 0
-                        return
-                if self._seeder:
-                    seeder = str(self._seeder).split("-")[0]
-                    if not StringUtils.is_number(seeder):
-                        logger.error(f"站点刷流任务出错，做种人数设置错误：{self._seeder}")
-                        self.systemmessage.put(f"站点刷流任务出错，做种人数设置错误：{self._seeder}")
-                        self._seeder = 0
-                        return
-                if self._seed_time and not StringUtils.is_number(self._seed_time):
-                    logger.error(f"站点刷流任务出错，做种时间设置错误：{self._seed_time}")
-                    self.systemmessage.put(f"站点刷流任务出错，做种时间设置错误：{self._seed_time}")
-                    self._seed_time = 0
-                    return
-                if self._seed_ratio and not StringUtils.is_number(self._seed_ratio):
-                    logger.error(f"站点刷流任务出错，分享率设置错误：{self._seed_ratio}")
-                    self.systemmessage.put(f"站点刷流任务出错，分享率设置错误：{self._seed_ratio}")
-                    self._seed_ratio = 0
-                    return
-                if self._seed_size and not StringUtils.is_number(self._seed_size):
-                    logger.error(f"站点刷流任务出错，上传量设置错误：{self._seed_size}")
-                    self.systemmessage.put(f"站点刷流任务出错，上传量设置错误：{self._seed_size}")
-                    self._seed_size = 0
-                    return
-                if self._download_time and not StringUtils.is_number(self._download_time):
-                    logger.error(f"站点刷流任务出错，下载超时时间设置错误：{self._download_time}")
-                    self.systemmessage.put(f"站点刷流任务出错，下载超时时间设置错误：{self._download_time}")
-                    self._download_time = 0
-                    return
-                if self._seed_avgspeed and not StringUtils.is_number(self._seed_avgspeed):
-                    logger.error(f"站点刷流任务出错，平均上传速度设置错误：{self._seed_avgspeed}")
-                    self.systemmessage.put(f"站点刷流任务出错，平均上传速度设置错误：{self._seed_avgspeed}")
-                    self._seed_avgspeed = 0
-                    return
-                if self._seed_inactivetime and not StringUtils.is_number(self._seed_inactivetime):
-                    logger.error(f"站点刷流任务出错，未活动时间设置错误：{self._seed_inactivetime}")
-                    self.systemmessage.put(f"站点刷流任务出错，未活动时间设置错误：{self._seed_inactivetime}")
-                    self._seed_inactivetime = 0
-                    return
-                if self._up_speed and not StringUtils.is_number(self._up_speed):
-                    logger.error(f"站点刷流任务出错，单任务上传限速设置错误：{self._up_speed}")
-                    self.systemmessage.put(f"站点刷流任务出错，单任务上传限速设置错误：{self._up_speed}")
-                    self._up_speed = 0
-                    return
-                if self._dl_speed and not StringUtils.is_number(self._dl_speed):
-                    logger.error(f"站点刷流任务出错，单任务下载限速设置错误：{self._dl_speed}")
-                    self.systemmessage.put(f"站点刷流任务出错，单任务下载限速设置错误：{self._dl_speed}")
-                    self._dl_speed = 0
-                    return
-
-                # 如果下载器都没有配置，那么这里也不需要继续
-                if not self._downloader:
-                    logger.info(f"站点刷流服务停止，没有配置下载器")
-                    return
-
-                # 如果站点都没有配置，则不开启定时刷流服务
-                if not self._brushsites:
-                    logger.info(f"站点刷流Brush定时服务停止，没有配置站点")
+            # 存在任务则启动任务
+            if self._scheduler.get_jobs():
+                # 启动服务
+                self._scheduler.print_jobs()
+                self._scheduler.start()
                 
-                # 如果开启&存在站点时，才需要启用后台任务
-                self._task_brush_enable = self._enabled and self._brushsites
-                
-                # 检查是否启用了一次性任务
-                if self._onlyonce:
-                    self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-                    logger.info(f"站点刷流Brush服务启动，立即运行一次")
-                    self._scheduler.add_job(self.brush, 'date',
-                                            run_date=datetime.now(
-                                                tz=pytz.timezone(settings.TZ)
-                                            ) + timedelta(seconds=3),
-                                            name="站点刷流Brush服务")
-                    
-                    logger.info(f"站点刷流Check服务启动，立即运行一次")
-                    self._scheduler.add_job(self.check, 'date',
-                                            run_date=datetime.now(
-                                                tz=pytz.timezone(settings.TZ)
-                                            ) + timedelta(seconds=3),
-                                            name="站点刷流Check服务")
-                    # 关闭一次性开关
-                    self._onlyonce = False
-                    self.__update_config()
-
-                    # 存在任务则启动任务
-                    if self._scheduler.get_jobs():
-                        # 启动服务
-                        self._scheduler.print_jobs()
-                        self._scheduler.start()    
-                                        
     def get_state(self) -> bool:
-        return True if self._enabled else False
+        brush_config = self.__get_brush_config()
+        return True if brush_config.enabled else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -302,6 +224,8 @@ class BrushFlowLowFreq(_PluginBase):
         """
         services = []
         
+        brush_config = self.__get_brush_config()
+        
         if self._task_brush_enable:
             logger.info(f"站点刷流Brush定时服务启动，时间间隔 {self._brush_interval} 分钟")
             services.append({
@@ -312,7 +236,7 @@ class BrushFlowLowFreq(_PluginBase):
                 "kwargs": {"minutes": self._brush_interval}
             })
             
-        if self._enabled:
+        if brush_config.enabled:
             logger.info(f"站点刷流Check定时服务启动，时间间隔 {self._check_interval} 分钟")
             services.append({
                 "id": "BrushFlowLowFreqCheck",
@@ -323,7 +247,7 @@ class BrushFlowLowFreq(_PluginBase):
             })
 
         if not services:
-            logger.info(f"站点刷流服务未开启")
+            logger.info("站点刷流服务未开启")
 
         return services
 
@@ -1340,46 +1264,14 @@ class BrushFlowLowFreq(_PluginBase):
         except Exception as e:
             print(str(e))
 
-    def __update_config(self):
-        """
-        更新配置
-        """
-        self.update_config({
-            "onlyonce": self._onlyonce,
-            "enabled": self._enabled,
-            "notify": self._notify,
-            "brushsites": self._brushsites,
-            "downloader": self._downloader,
-            "disksize": self._disksize,
-            "freeleech": self._freeleech,
-            "hr": self._hr,
-            "maxupspeed": self._maxupspeed,
-            "maxdlspeed": self._maxdlspeed,
-            "maxdlcount": self._maxdlcount,
-            "include": self._include,
-            "exclude": self._exclude,
-            "size": self._size,
-            "seeder": self._seeder,
-            "pubtime": self._pubtime,
-            "seed_time": self._seed_time,
-            "seed_ratio": self._seed_ratio,
-            "seed_size": self._seed_size,
-            "download_time": self._download_time,
-            "seed_avgspeed": self._seed_avgspeed,
-            "seed_inactivetime": self._seed_inactivetime,
-            "up_speed": self._up_speed,
-            "dl_speed": self._dl_speed,
-            "save_path": self._save_path,
-            "clear_task": self._clear_task,
-            "except_tags": self._except_tags,
-            "except_subscribe": self._except_subscribe
-        })
-
     def brush(self):
         """
         执行刷流动作，添加下载任务
         """
-        if not self._brushsites or not self._downloader:
+        
+        brush_config = self.__get_brush_config()
+        
+        if not brush_config.brushsites or not brush_config.downloader:
             return
 
         with lock:
@@ -1402,8 +1294,8 @@ class BrushFlowLowFreq(_PluginBase):
 
             # 同时下载任务数
             downloads = self.__get_downloading_count()
-            if self._maxdlcount and downloads >= int(self._maxdlcount):
-                logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {self._maxdlcount}，停止新增任务")
+            if brush_config.maxdlcount and downloads >= int(brush_config.maxdlcount):
+                logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {brush_config.maxdlcount}，停止新增任务")
                 return
             # 获取下载器的下载信息
             downloader_info = self.__get_downloader_info()
@@ -1411,26 +1303,26 @@ class BrushFlowLowFreq(_PluginBase):
                 current_upload_speed = downloader_info.upload_speed or 0
                 current_download_speed = downloader_info.download_speed or 0
                 # 总上传带宽(KB/s)
-                if self._maxupspeed \
-                        and current_upload_speed >= float(self._maxupspeed) * 1024:
+                if brush_config.maxupspeed \
+                        and current_upload_speed >= float(brush_config.maxupspeed) * 1024:
                     logger.warn(f"当前总上传带宽 {StringUtils.str_filesize(current_upload_speed)} "
-                                f"已达到最大值 {self._maxupspeed} KB/s，暂时停止新增任务")
+                                f"已达到最大值 {brush_config.maxupspeed} KB/s，暂时停止新增任务")
                     return
                 # 总下载带宽(KB/s)
-                if self._maxdlspeed \
-                        and current_download_speed >= float(self._maxdlspeed) * 1024:
+                if brush_config.maxdlspeed \
+                        and current_download_speed >= float(brush_config.maxdlspeed) * 1024:
                     logger.warn(f"当前总下载带宽 {StringUtils.str_filesize(current_download_speed)} "
-                                f"已达到最大值 {self._maxdlspeed} KB/s，暂时停止新增任务")
+                                f"已达到最大值 {brush_config.maxdlspeed} KB/s，暂时停止新增任务")
                     return
             # 保种体积（GB）
-            if self._disksize \
-                    and torrents_size > float(self._disksize) * 1024 ** 3:
-                logger.warn(f"当前做种体积 {self.__bytes_to_gb(torrents_size):.2f} GB "
-                            f"已超过保种体积 {self._disksize} GB，停止新增任务")
+            if brush_config.disksize \
+                    and torrents_size > float(brush_config.disksize) * 1024 ** 3:
+                logger.warn(f"当前做种体积 {brush_config._bytes_to_gb(torrents_size):.2f} GB "
+                            f"已超过保种体积 {brush_config.disksize} GB，停止新增任务")
                 return
 
             # 处理所有站点
-            for siteid in self._brushsites:
+            for siteid in brush_config.brushsites:
                 siteinfo = self.siteoper.get(siteid)
                 if not siteinfo:
                     logger.warn(f"站点不存在：{siteid}")
@@ -1442,7 +1334,7 @@ class BrushFlowLowFreq(_PluginBase):
                     continue
                 
                 # 排除包含订阅的种子
-                if(self._except_subscribe):
+                if(brush_config.except_subscribe):
                     torrents = self.__filter_torrents_contains_subscribe(torrents=torrents)
                 
                 # 按pubdate降序排列
@@ -1456,28 +1348,28 @@ class BrushFlowLowFreq(_PluginBase):
                     ]:
                         continue
                     # 促销
-                    if self._freeleech and torrent.downloadvolumefactor != 0:
+                    if brush_config.freeleech and torrent.downloadvolumefactor != 0:
                         continue
-                    if self._freeleech == "2xfree" and torrent.uploadvolumefactor != 2:
+                    if brush_config.freeleech == "2xfree" and torrent.uploadvolumefactor != 2:
                         continue
                     # H&R
-                    if self._hr == "yes" and torrent.hit_and_run:
+                    if brush_config.hr == "yes" and torrent.hit_and_run:
                         continue
                     # 包含规则
-                    if self._include:
-                        # 检查 torrent.title 或 torrent.description 是否匹配 self._include 正则表达式
-                        if not (re.search(r"%s" % self._include, torrent.title, re.I) or 
-                                re.search(r"%s" % self._include, torrent.description, re.I)):
+                    if brush_config.include:
+                        # 检查 torrent.title 或 torrent.description 是否匹配 brush_config.include 正则表达式
+                        if not (re.search(r"%s" % brush_config.include, torrent.title, re.I) or 
+                                re.search(r"%s" % brush_config.include, torrent.description, re.I)):
                             continue  # 如果都不匹配，跳过当前 torrent
                     # 排除规则
-                    if self._exclude:
-                        # 检查 torrent.title 或 torrent.description 是否匹配 self._exclude 正则表达式
-                        if (re.search(r"%s" % self._exclude, torrent.title, re.I) or 
-                            re.search(r"%s" % self._exclude, torrent.description, re.I)):
+                    if brush_config.exclude:
+                        # 检查 torrent.title 或 torrent.description 是否匹配 brush_config.exclude 正则表达式
+                        if (re.search(r"%s" % brush_config.exclude, torrent.title, re.I) or 
+                            re.search(r"%s" % brush_config.exclude, torrent.description, re.I)):
                             continue  # 如果任意一个匹配，跳过当前 torrent
                     # 种子大小（GB）
-                    if self._size:
-                        sizes = str(self._size).split("-")
+                    if brush_config.size:
+                        sizes = str(brush_config.size).split("-")
                         begin_size = sizes[0]
                         if len(sizes) > 1:
                             end_size = sizes[-1]
@@ -1490,8 +1382,8 @@ class BrushFlowLowFreq(_PluginBase):
                                 and not float(begin_size) * 1024 ** 3 <= torrent.size <= float(end_size) * 1024 ** 3:
                             continue
                     # 做种人数
-                    if self._seeder:
-                        seeders = str(self._seeder).split("-")
+                    if brush_config.seeder:
+                        seeders = str(brush_config.seeder).split("-")
                         begin_seeder = seeders[0]
                         if len(seeders) > 1:
                             end_seeder = seeders[-1]
@@ -1508,8 +1400,8 @@ class BrushFlowLowFreq(_PluginBase):
                     # 部分站点的发布时间需要特殊处理
                     pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
                     # 发布时间（分钟）
-                    if self._pubtime:
-                        pubtimes = str(self._pubtime).split("-")
+                    if brush_config.pubtime:
+                        pubtimes = str(brush_config.pubtime).split("-")
                         begin_pubtime = pubtimes[0]
                         if len(pubtimes) > 1:
                             end_pubtime = pubtimes[-1]
@@ -1524,14 +1416,14 @@ class BrushFlowLowFreq(_PluginBase):
                             continue
                     # 同时下载任务数
                     downloads = self.__get_downloading_count()
-                    if self._maxdlcount and downloads >= int(self._maxdlcount):
-                        logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {self._maxdlcount}，停止新增任务")
+                    if brush_config.maxdlcount and downloads >= int(brush_config.maxdlcount):
+                        logger.warn(f"当前同时下载任务数 {downloads} 已达到最大值 {brush_config.maxdlcount}，停止新增任务")
                         break
                     # 保种体积（GB）
-                    if self._disksize \
-                            and (torrents_size + torrent.size) > float(self._disksize) * 1024 ** 3:
-                        logger.warn(f"当前做种体积 {self.__bytes_to_gb(torrents_size + torrent.size):.2f} GB "
-                                    f"已超过保种体积 {self._disksize} GB，停止新增任务")
+                    if brush_config.disksize \
+                            and (torrents_size + torrent.size) > float(brush_config.disksize) * 1024 ** 3:
+                        logger.warn(f"当前做种体积 {brush_config._bytes_to_gb(torrents_size + torrent.size):.2f} GB "
+                                    f"已超过保种体积 {brush_config.disksize} GB，停止新增任务")
                         break                    
                     # 添加下载任务
                     hash_string = self.__download(torrent=torrent)
@@ -1566,194 +1458,295 @@ class BrushFlowLowFreq(_PluginBase):
     def check(self):
         """
         定时检查，删除下载任务
-        {
-            hash: {
-                site_name:
-                size:
-            }
-        }
         """
-        if not self._downloader:
+        brush_config = self.__get_brush_config()
+
+        if not brush_config.downloader:
             return
 
         with lock:
-            logger.info(f"开始检查刷流下载任务 ...")
-            # 读取种子记录
-            task_info: Dict[str, dict] = self.get_data("torrents") or {}
-            # 种子Hash
-            check_hashs = list(task_info.keys())
-            if not task_info or not check_hashs:
-                logger.info(f"没有需要检查的刷流下载任务")
+            logger.info("开始检查刷流下载任务 ...")
+            torrent_tasks = self.get_data("torrents") or {}
+            torrent_check_hashes = list(torrent_tasks.keys())
+
+            if not torrent_tasks or not torrent_check_hashes:
+                logger.info("没有需要检查的刷流下载任务")
                 return
-            logger.info(f"共有 {len(check_hashs)} 个任务正在刷流，开始检查任务状态")
-            # 获取下载器实例
-            downloader = self.__get_downloader(self._downloader)
+
+            logger.info(f"共有 {len(torrent_check_hashes)} 个任务正在刷流，开始检查任务状态")
+
+            downloader = self.__get_downloader(brush_config.downloader)
             if not downloader:
+                logger.warn("无法获取下载器实例，将在下个时间周期重试")
                 return
-            # 读取统计数据
-            statistic_info = self.get_data("statistic") or {
-                "count": 0,
-                "deleted": 0,
-                "uploaded": 0,
-                "downloaded": 0
-            }
-            # 获取下载器中的种子
-            torrents, error = downloader.get_torrents(ids=check_hashs)
+
+            statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0}
+
+            torrents, error = downloader.get_torrents(ids=torrent_check_hashes)
             if error:
                 logger.warn("连接下载器出错，将在下个时间周期重试")
                 return
-            if not torrents:
-                logger.warn(f"刷流任务在下载器中不存在，清除记录")
-                self.save_data("torrents", {})
-                return
-            
+
             # 排除MoviePilot种子
-            if self._except_tags:
-                torrents = self.__filter_torrents_by_tag(torrents=torrents,
-                                                       exclude_tag=settings.TORRENT_TAG)
-                            
-            # 检查种子状态，判断是否要删种
-            remove_torrents = []
-            for torrent in torrents:
-                torrent_hash = self.__get_hash(torrent)
-                site_name = task_info.get(torrent_hash).get("site_name")
-                torrent_info = self.__get_torrent_info(torrent)
-                # 更新上传量、下载量
-                if not task_info.get(torrent_info.get("hash")):
-                    task_info[torrent_hash] = {
-                        "downloaded": torrent_info.get("downloaded"),
-                        "uploaded": torrent_info.get("uploaded"),
-                        "ratio": torrent_info.get("ratio"),
-                    }
-                else:
-                    task_info[torrent_hash]["downloaded"] = torrent_info.get("downloaded")
-                    task_info[torrent_hash]["uploaded"] = torrent_info.get("uploaded")
-                    task_info[torrent_hash]["ratio"] = torrent_info.get("ratio")
-                # 做种时间（小时）
-                if self._seed_time:
-                    if torrent_info.get("seeding_time") >= float(self._seed_time) * 3600:
-                        logger.info(f"做种时间达到 {self._seed_time} 小时，删除种子：{torrent_info.get('title')}")
-                        downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                        remove_torrents.append(torrent_info)
-                        self.__send_delete_message(site_name=site_name,
-                                                   torrent_title=torrent_info.get("title"),
-                                                   reason=f"做种时间达到 {self._seed_time} 小时")
-                        continue
-                # 分享率
-                if self._seed_ratio:
-                    if torrent_info.get("ratio") >= float(self._seed_ratio):
-                        logger.info(f"分享率达到 {self._seed_ratio}，删除种子：{torrent_info.get('title')}")
-                        downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                        remove_torrents.append(torrent_info)
-                        self.__send_delete_message(site_name=site_name,
-                                                   torrent_title=torrent_info.get("title"),
-                                                   reason=f"分享率达到 {self._seed_ratio}")
-                        continue
-                # 上传量（GB）
-                if self._seed_size:
-                    if torrent_info.get("uploaded") >= float(self._seed_size) * 1024 * 1024 * 1024:
-                        logger.info(f"上传量达到 {self._seed_size} GB，删除种子：{torrent_info.get('title')}")
-                        downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                        remove_torrents.append(torrent_info)
-                        self.__send_delete_message(site_name=site_name,
-                                                   torrent_title=torrent_info.get("title"),
-                                                   reason=f"上传量达到 {self._seed_size} GB")
-                        continue
-                # 下载耗时（小时）
-                if self._download_time \
-                        and torrent_info.get("downloaded") < torrent_info.get("total_size"):
-                    if torrent_info.get("dltime") >= float(self._download_time) * 3600:
-                        logger.info(f"下载耗时达到 {self._download_time} 小时，删除种子：{torrent_info.get('title')}")
-                        downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                        remove_torrents.append(torrent_info)
-                        self.__send_delete_message(site_name=site_name,
-                                                   torrent_title=torrent_info.get("title"),
-                                                   reason=f"下载耗时达到 {self._download_time} 小时")
-                        continue
-                # 平均上传速度（KB / s），大于30分钟才有效
-                if self._seed_avgspeed:
-                    if torrent_info.get("avg_upspeed") <= float(self._seed_avgspeed) * 1024 and \
-                            torrent_info.get("seeding_time") >= 30 * 60:
-                        logger.info(f"平均上传速度低于 {self._seed_avgspeed} KB/s，删除种子：{torrent_info.get('title')}")
-                        downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                        remove_torrents.append(torrent_info)
-                        self.__send_delete_message(site_name=site_name,
-                                                   torrent_title=torrent_info.get("title"),
-                                                   reason=f"平均上传速度低于 {self._seed_avgspeed} KB/s")
-                        continue
-                # 未活动时间（分钟）
-                if self._seed_inactivetime:
-                    if torrent_info.get("iatime") >= float(self._seed_inactivetime) * 60:
-                        logger.info(
-                            f"未活动时间达到 {self._seed_inactivetime} 分钟，删除种子：{torrent_info.get('title')}")
-                        downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                        remove_torrents.append(torrent_info)
-                        self.__send_delete_message(site_name=site_name,
-                                                   torrent_title=torrent_info.get("title"),
-                                                   reason=f"未活动时间达到 {self._seed_inactivetime} 分钟")
-                        continue
+            if torrents and brush_config.except_tags:
+                torrents = self.__filter_torrents_by_tag(torrents=torrents, exclude_tag=settings.TORRENT_TAG)
+
             # 统计删除状态
-            if remove_torrents:
-                if not statistic_info.get("deleted"):
-                    statistic_info["deleted"] = 0
-                statistic_info["deleted"] += len(remove_torrents)
-                # 删除任务记录
-                for torrent in remove_torrents:
-                    task_info[torrent.get("hash")].update({
-                        "deleted": True,
-                    })
-                    
-            # 处理已经在下载器中找不到的种子，更新统计以及任务状态
-            torrent_all_hashes = self.__get_all_hashes(torrents)
-            missing_hashes = [hash_value for hash_value in check_hashs if hash_value not in torrent_all_hashes]
-            # 筛选出尚未标记为已删除的missing_hashes
-            not_deleted_hashes = [hash_value for hash_value in missing_hashes if not task_info[hash_value].get("deleted")]
+            remove_hashes = self.__delete_torrent_and_get_removes(torrents=torrents, torrent_tasks=torrent_tasks) or []
+                 
+            not_deleted_hashes = self.__handle_not_deleted_hashes(torrent_tasks, torrent_check_hashes, torrents) or []
+            
+            all_deleted_hashes = remove_hashes + not_deleted_hashes
 
-            if not_deleted_hashes:
-                # 记录即将被标记为删除的任务数量
-                num_deleted = len(not_deleted_hashes)
+            if all_deleted_hashes:
+                statistic_info["deleted"] += len(all_deleted_hashes)
+                for hash in all_deleted_hashes:
+                    torrent_tasks[hash]["deleted"] = True
+            
+            self.__update_and_save_statistic_info(statistic_info, torrent_tasks)
+            
+            logger.info("刷流下载任务检查完成")
+    
+    def __evaluate_conditions_and_delete(self, torrent_info) -> Tuple[bool, str]:
+        """
+        评估删除条件并返回是否应删除种子及其原因
+        """
+        
+        brush_config = self.__get_brush_config()
+        
+        if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
+            reason = f"做种时间达到 {brush_config.seed_time} 小时"
+        elif brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
+            reason = f"分享率达到 {brush_config.seed_ratio}"
+        elif brush_config.seed_size and torrent_info.get("uploaded") >= float(brush_config.seed_size) * 1024**3:
+            reason = f"上传量达到 {brush_config.seed_size} GB"
+        elif brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get("total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
+            reason = f"下载耗时达到 {brush_config.download_time} 小时"
+        elif brush_config.seed_avgspeed and torrent_info.get("avg_upspeed") <= float(brush_config.seed_avgspeed) * 1024 and torrent_info.get("seeding_time") >= 30 * 60:
+            reason = f"平均上传速度低于 {brush_config.seed_avgspeed} KB/s"
+        elif brush_config.seed_inactivetime and torrent_info.get("iatime") >= float(brush_config.seed_inactivetime) * 60:
+            reason = f"未活动时间达到 {brush_config.seed_inactivetime} 分钟"
+        else:
+            return False, ""
+
+        return True, reason
+            
+    def __delete_torrent_and_get_removes(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
+        """
+        根据条件删除种子并获取已删除列表
+        """     
+        remove_hashes = []
+        
+        brush_config = self.__get_brush_config()
+        downloader = self.__get_downloader(brush_config.downloader)
+        
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            site_name = torrent_tasks.get(torrent_hash, {}).get("site_name", "")
+            torrent_info = self.__get_torrent_info(torrent)
+            
+            # 更新上传量、下载量
+            torrent_tasks.setdefault(torrent_hash, {}).update({
+                "downloaded": torrent_info.get("downloaded"),
+                "uploaded": torrent_info.get("uploaded"),
+                "ratio": torrent_info.get("ratio"),
+            })
+
+            should_delete, reason = self.__evaluate_conditions_and_delete(torrent_info)
+            if should_delete:
+                # 删除种子的具体实现可能会根据实际情况略有不同
+                downloader.delete_torrents(ids=torrent_hash, delete_file=True)
+                remove_hashes.append(torrent_info.get("hash"))
+                torrent_title = torrent_info.get("title")
+                self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, reason=reason)
+                logger.info(f"{reason}，删除种子：{torrent_title}")
+
+        return remove_hashes
+    
+    def __handle_not_deleted_hashes(self, torrent_tasks, torrent_check_hashes, torrents) -> List:
+        """
+        处理已经被删除，但是任务记录中还没有被标记删除的种子
+        """
+        torrent_all_hashes = self.__get_all_hashes(torrents)
+        missing_hashes = [hash_value for hash_value in torrent_check_hashes if hash_value not in torrent_all_hashes]
+        not_deleted_hashes = [hash_value for hash_value in missing_hashes if not torrent_tasks[hash_value].get("deleted")]
+
+        if not not_deleted_hashes:
+            return []
                 
-                # 处理每个符合条件的任务
-                for hash_value in not_deleted_hashes:
-                    # 获取对应的任务信息
-                    torrent_info = task_info[hash_value]
-                    # 获取site_name和torrent_title
-                    site_name = torrent_info["site_name"]
-                    torrent_title = torrent_info["title"]
-                    
-                    # 记录日志
-                    logger.info(f"下载器中找不到种子，可能已经被删除，种子信息:{torrent_info}")
-                    
-                    # 发送删除消息
-                    self.__send_delete_message(site_name=site_name,
-                                            torrent_title=torrent_title,
-                                            reason="下载器中找不到种子")
-                    # 标记该任务为已删除
-                    task_info[hash_value]["deleted"] = True
+        # 处理每个符合条件的任务
+        for hash_value in not_deleted_hashes:
+            # 获取对应的任务信息
+            torrent_info = torrent_tasks[hash_value]
+            # 获取site_name和torrent_title
+            site_name = torrent_info["site_name"]
+            torrent_title = torrent_info["title"]
+            logger.info(f"下载器中找不到种子，可能已经被删除，种子信息:{torrent_info}")
+            # 发送删除消息
+            self.__send_delete_message(site_name=site_name,
+                                        torrent_title=torrent_title,
+                                        reason="下载器中找不到种子")
+        
+        return not_deleted_hashes
 
-                # 更新统计状态，一次性添加所有的删除数量
-                statistic_info["deleted"] = statistic_info.get("deleted", 0) + num_deleted
-                    
-            # 统计总上传量、下载量
-            total_uploaded = 0
-            total_downloaded = 0
-            for hash_str, task in task_info.items():
-                total_downloaded += task.get("downloaded") or 0
-                total_uploaded += task.get("uploaded") or 0
-            # 更新统计数据
-            statistic_info["uploaded"] = total_uploaded
-            statistic_info["downloaded"] = total_downloaded
-            # 打印统计数据
-            logger.info(f"刷流任务统计数据："
-                        f"总任务数：{len(task_info)}，"
-                        f"已删除：{statistic_info.get('deleted')}，"
-                        f"总上传量：{StringUtils.str_filesize(statistic_info.get('uploaded'))}，"
-                        f"总下载量：{StringUtils.str_filesize(statistic_info.get('downloaded'))}")
-            # 保存统计数据
-            self.save_data("statistic", statistic_info)
-            # 保存任务记录
-            self.save_data("torrents", task_info)
-            logger.info(f"刷流下载任务检查完成")
+    def __update_and_save_statistic_info(self, statistic_info, torrent_tasks):
+        total_uploaded, total_downloaded = 0, 0
+        for task in torrent_tasks.values():
+            total_downloaded += task.get("downloaded", 0)
+            total_uploaded += task.get("uploaded", 0)
+
+        statistic_info.update({"uploaded": total_uploaded, "downloaded": total_downloaded})
+
+        logger.info(f"刷流任务统计数据：总任务数：{len(torrent_tasks)}，已删除：{statistic_info['deleted']}，"
+                    f"总上传量：{StringUtils.str_filesize(total_uploaded)}，"
+                    f"总下载量：{StringUtils.str_filesize(total_downloaded)}")
+
+        self.save_data("statistic", statistic_info)
+        self.save_data("torrents", torrent_tasks)
+
+    def __get_brush_config(self) -> BrushConfig:
+        """
+        获取BrushConfig
+        """
+        return self._brush_config
+
+    def __update_config(self, brush_config: BrushConfig = None):
+        """
+        根据传入的BrushConfig实例更新配置
+        """
+        if brush_config is None:
+            brush_config = self._brush_config
+            
+        if brush_config is None:
+            return
+        
+        # 创建一个将配置属性名称映射到BrushConfig属性值的字典
+        config_mapping = {
+            "onlyonce": brush_config.onlyonce,
+            "enabled": brush_config.enabled,
+            "notify": brush_config.notify,
+            "brushsites": brush_config.brushsites,
+            "downloader": brush_config.downloader,
+            "disksize": brush_config.disksize,
+            "freeleech": brush_config.freeleech,
+            "hr": brush_config.hr,
+            "maxupspeed": brush_config.maxupspeed,
+            "maxdlspeed": brush_config.maxdlspeed,
+            "maxdlcount": brush_config.maxdlcount,
+            "include": brush_config.include,
+            "exclude": brush_config.exclude,
+            "size": brush_config.size,
+            "seeder": brush_config.seeder,
+            "pubtime": brush_config.pubtime,
+            "seed_time": brush_config.seed_time,
+            "seed_ratio": brush_config.seed_ratio,
+            "seed_size": brush_config.seed_size,
+            "download_time": brush_config.download_time,
+            "seed_avgspeed": brush_config.seed_avgspeed,
+            "seed_inactivetime": brush_config.seed_inactivetime,
+            "up_speed": brush_config.up_speed,
+            "dl_speed": brush_config.dl_speed,
+            "save_path": brush_config.save_path,
+            "clear_task": brush_config.clear_task,
+            "except_tags": brush_config.except_tags,
+            "except_subscribe": brush_config.except_subscribe
+        }
+        
+        # 使用update_config方法或其等效方法更新配置
+        self.update_config(config_mapping)
+
+    def __setup_downloader(self):
+        """
+        根据下载器类型初始化下载器实例
+        """
+        brush_config = self.__get_brush_config()
+        
+        if brush_config.downloader == "qbittorrent":
+            self.qb = Qbittorrent()
+            if self.qb.is_inactive():
+                self.__log_and_notify_error("站点刷流任务出错：Qbittorrent未连接")
+                return False
+            
+        elif brush_config.downloader == "transmission":
+            self.tr = Transmission()
+            if self.tr.is_inactive():
+                self.__log_and_notify_error("站点刷流任务出错：Transmission未连接")
+                return False
+            
+        return True
+
+    def __validate_and_fix_config(self, config: dict = None) -> bool:
+        """
+        检查并修正配置值
+        """    
+        if config is None:
+            logger.error("配置为None，无法验证和修正")
+            return False
+
+        # 设置一个标志，用于跟踪是否发现校验错误
+        found_error = False
+
+        config_number_attr_to_desc = {
+            "disksize": "保种体积",
+            "maxupspeed": "总上传带宽",
+            "maxdlspeed": "总下载带宽",
+            "maxdlcount": "同时下载任务数",
+            "seed_time": "做种时间",
+            "seed_ratio": "分享率",
+            "seed_size": "上传量",
+            "download_time": "下载超时时间",
+            "seed_avgspeed": "平均上传速度",
+            "seed_inactivetime": "未活动时间",
+            "up_speed": "单任务上传限速",
+            "dl_speed": "单任务下载限速"
+        }
+        
+        config_range_number_attr_to_desc = {
+            "pubtime": "发布时间",
+            "size": "种子大小",
+            "seeder": "做种人数"
+        }
+                
+        for attr, desc in config_number_attr_to_desc.items():
+            value = config.get(attr)
+            if value and not self.__is_number(value):
+                self.__log_and_notify_error(f"站点刷流任务出错，{desc}设置错误：{value}")
+                config[attr] = 0
+                found_error = True  # 更新错误标志
+
+        for attr, desc in config_range_number_attr_to_desc.items():
+            value = config.get(attr)
+            # 检查 value 是否存在且是否符合数字或数字-数字的模式
+            if value and not self.__is_number_or_range(str(value)):
+                self.__log_and_notify_error(f"站点刷流任务出错，{desc}设置错误：{value}")
+                config[attr] = 0
+                found_error = True  # 更新错误标志
+            
+        # 如果发现任何错误，返回False；否则返回True
+        return not found_error
+
+    def __is_number_or_range(self, value):
+        """
+        检查字符串是否表示单个数字或数字范围（如'5'或'5-10'）
+        """
+        return bool(re.match(r"^\d+(-\d+)?$", value))
+    
+    def __is_number(self, value):
+        """
+        检查给定的值是否可以被转换为数字（整数或浮点数）
+        """
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
+
+    def __log_and_notify_error(self, message):
+        """
+        记录错误日志并发送系统通知
+        """
+        logger.error(message)
+        self.systemmessage.put(message)
 
     def __get_downloader(self, dtype: str) -> Optional[Union[Transmission, Qbittorrent]]:
         """
@@ -1770,11 +1763,13 @@ class BrushFlowLowFreq(_PluginBase):
         """
         添加下载任务
         """
+        brush_config = self.__get_brush_config()
+
         # 上传限速
-        up_speed = int(self._up_speed) if self._up_speed else None
+        up_speed = int(brush_config.up_speed) if brush_config.up_speed else None
         # 下载限速
-        down_speed = int(self._dl_speed) if self._dl_speed else None
-        if self._downloader == "qbittorrent":
+        down_speed = int(brush_config.dl_speed) if brush_config.dl_speed else None
+        if brush_config.downloader == "qbittorrent":
             if not self.qb:
                 return None
             # 限速值转为bytes
@@ -1783,7 +1778,7 @@ class BrushFlowLowFreq(_PluginBase):
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
             state = self.qb.add_torrent(content=torrent.enclosure,
-                                        download_dir=self._save_path or None,
+                                        download_dir=brush_config.save_path or None,
                                         cookie=torrent.site_cookie,
                                         tag=["已整理", "刷流", tag],
                                         upload_limit=up_speed,
@@ -1794,21 +1789,21 @@ class BrushFlowLowFreq(_PluginBase):
                 # 获取种子Hash
                 torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
                 if not torrent_hash:
-                    logger.error(f"{self._downloader} 获取种子Hash失败")
+                    logger.error(f"{brush_config.downloader} 获取种子Hash失败")
                     return None
             return torrent_hash
-        elif self._downloader == "transmission":
+        elif brush_config.downloader == "transmission":
             if not self.tr:
                 return None
             # 添加任务
             torrent = self.tr.add_torrent(content=torrent.enclosure,
-                                          download_dir=self._save_path or None,
+                                          download_dir=brush_config.save_path or None,
                                           cookie=torrent.site_cookie,
                                           labels=["已整理", "刷流"])
             if not torrent:
                 return None
             else:
-                if self._up_speed or self._dl_speed:
+                if brush_config.up_speed or brush_config.dl_speed:
                     self.tr.change_torrent(hash_string=torrent.hashString,
                                            upload_limit=up_speed,
                                            download_limit=down_speed)
@@ -1819,8 +1814,9 @@ class BrushFlowLowFreq(_PluginBase):
         """
         获取种子hash
         """
+        brush_config = self.__get_brush_config()
         try:
-            return torrent.get("hash") if self._downloader == "qbittorrent" else torrent.hashString
+            return torrent.get("hash") if brush_config.downloader == "qbittorrent" else torrent.hashString
         except Exception as e:
             print(str(e))
             return ""
@@ -1832,11 +1828,12 @@ class BrushFlowLowFreq(_PluginBase):
         :param torrents: 包含种子信息的列表
         :return: 包含所有Hash值的列表
         """
+        brush_config = self.__get_brush_config()
         try:
             all_hashes = []
             for torrent in torrents:
                 # 根据下载器类型获取Hash值
-                hash_value = torrent.get("hash") if self._downloader == "qbittorrent" else torrent.hashString
+                hash_value = torrent.get("hash") if brush_config.downloader == "qbittorrent" else torrent.hashString
                 if hash_value:
                     all_hashes.append(hash_value)
             return all_hashes
@@ -1848,19 +1845,22 @@ class BrushFlowLowFreq(_PluginBase):
         """
         获取种子标签
         """
+        brush_config = self.__get_brush_config()
         try:
             return [str(tag).strip() for tag in torrent.get("tags").split(',')] \
-                if self._downloader == "qbittorrent" else torrent.labels or []
+                if brush_config.downloader == "qbittorrent" else torrent.labels or []
         except Exception as e:
             print(str(e))
             return []
 
     def __get_torrent_info(self, torrent: Any) -> dict:
-
-        # 当前时间戳
+        """
+        获取种子信息
+        """
         date_now = int(time.time())
+        brush_config = self.__get_brush_config()
         # QB
-        if self._downloader == "qbittorrent":
+        if brush_config.downloader == "qbittorrent":
             """
             {
               "added_on": 1693359031,
@@ -2015,7 +2015,8 @@ class BrushFlowLowFreq(_PluginBase):
         """
         发送删除种子的消息
         """
-        if not self._notify:
+        brush_config = self.__get_brush_config()
+        if not brush_config.notify:
             return
         self.chain.post_message(Notification(
             mtype=NotificationType.SiteMessage,
@@ -2029,7 +2030,8 @@ class BrushFlowLowFreq(_PluginBase):
         """
         发送添加下载的消息
         """
-        if not self._notify:
+        brush_config = self.__get_brush_config()
+        if not brush_config.notify:
             return
         msg_text = ""
         if torrent.site_name:
@@ -2098,14 +2100,14 @@ class BrushFlowLowFreq(_PluginBase):
         """
         获取正在下载的任务数量
         """
-        downlader = self.__get_downloader(self._downloader)
+        brush_config = self.__get_brush_config()
+        downlader = self.__get_downloader(brush_config.downloader)
         if not downlader:
             return 0
         torrents = downlader.get_downloading_torrents()
         return len(torrents) or 0
 
-    @staticmethod
-    def __get_pubminutes(pubdate: str) -> float:
+    def __get_pubminutes(self, pubdate: str) -> float:
         """
         将字符串转换为时间，并计算与当前时间差）（分钟）
         """
@@ -2120,8 +2122,7 @@ class BrushFlowLowFreq(_PluginBase):
             print(str(e))
             return 0
     
-    @staticmethod
-    def __adjust_site_pubminutes(pub_minutes: float, torrent: TorrentInfo) -> float:
+    def __adjust_site_pubminutes(self, pub_minutes: float, torrent: TorrentInfo) -> float:
         """
         处理部分站点的时区逻辑
         """
