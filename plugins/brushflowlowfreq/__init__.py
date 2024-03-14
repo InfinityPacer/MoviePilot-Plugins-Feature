@@ -54,10 +54,11 @@ class BrushFlowLowFreq(_PluginBase):
     sites = None
     qb = None
     tr = None
-    # 添加种子定时 分钟
-    _cron = 10
-    _task_enable = False
-    # 检查种子定时
+    # Brush任务是否启动
+    _task_brush_enable = False
+    # Brush定时
+    _brush_interval = 10
+    # Check定时
     _check_interval = 5
     # 退出事件
     _event = Event()
@@ -100,6 +101,7 @@ class BrushFlowLowFreq(_PluginBase):
         self.torrents = TorrentsChain()
         self.sites = SitesHelper()
         self.subscribeoper = SubscribeOper()
+        self._task_brush_enable = False
         
         if config:
             self._enabled = config.get("enabled")
@@ -149,10 +151,8 @@ class BrushFlowLowFreq(_PluginBase):
 
             # 停止现有任务
             self.stop_service()
-
-            # 启动定时任务 & 立即运行一次
-            self._task_enable = False
-            if self.get_state() or self._onlyonce:
+            
+            if self._enabled or self._onlyonce:
                 self.qb = Qbittorrent()
                 self.tr = Transmission()
                 # 检查配置
@@ -241,55 +241,46 @@ class BrushFlowLowFreq(_PluginBase):
                     self._dl_speed = 0
                     return
 
-                # 检查必要条件
-                if not self._brushsites or not self._downloader:
+                # 如果下载器都没有配置，那么这里也不需要继续
+                if not self._downloader:
+                    logger.info(f"站点刷流服务停止，没有配置下载器")
                     return
 
-                self._task_enable = self._enabled
+                # 如果站点都没有配置，则不开启定时刷流服务
+                if not self._brushsites:
+                    logger.info(f"站点刷流Brush定时服务停止，没有配置站点")
                 
-                status_desc = "开启" if self._task_enable else "关闭"
-                logger.info(f"站点刷流服务状态：{status_desc}")
-
-                # 检查是否有任务需要开启
-                if self._task_enable or self._onlyonce:
-                    # 实例化 BackgroundScheduler 对象
+                # 如果开启&存在站点时，才需要启用后台任务
+                self._task_brush_enable = self._enabled and self._brushsites
+                
+                # 检查是否启用了一次性任务
+                if self._onlyonce:
                     self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-                    # 如果开启了任务，则轮询定时任务
-                    if self._task_enable:
-                        logger.info(f"站点刷流服务启动，时间间隔 {self._cron} 分钟")
-                        logger.info(f"站点刷流检查服务启动，时间间隔 {self._check_interval} 分钟")
-                        self._scheduler.add_job(self.check, 'interval',
-                                                minutes=self._check_interval,
-                                                name="站点刷流检查服务")
-
-                    # 仅一次
-                    if self._onlyonce:
-                        logger.info(f"站点刷流服务启动，立即运行一次")
-                        self._scheduler.add_job(self.brush, 'date',
-                                                run_date=datetime.now(
-                                                    tz=pytz.timezone(settings.TZ)
-                                                ) + timedelta(seconds=3),
-                                                name="站点刷流服务")
-                        
-                        logger.info(f"站点刷流检查服务启动，立即运行一次")
-                        self._scheduler.add_job(self.check, 'date',
+                    logger.info(f"站点刷流Brush服务启动，立即运行一次")
+                    self._scheduler.add_job(self.brush, 'date',
                                             run_date=datetime.now(
                                                 tz=pytz.timezone(settings.TZ)
                                             ) + timedelta(seconds=3),
-                                            name="站点刷流检查服务")
-                        # 关闭一次性开关
-                        self._onlyonce = False
-                        self.__update_config()
+                                            name="站点刷流Brush服务")
+                    
+                    logger.info(f"站点刷流Check服务启动，立即运行一次")
+                    self._scheduler.add_job(self.check, 'date',
+                                            run_date=datetime.now(
+                                                tz=pytz.timezone(settings.TZ)
+                                            ) + timedelta(seconds=3),
+                                            name="站点刷流Check服务")
+                    # 关闭一次性开关
+                    self._onlyonce = False
+                    self.__update_config()
 
                     # 存在任务则启动任务
                     if self._scheduler.get_jobs():
                         # 启动服务
                         self._scheduler.print_jobs()
-                        self._scheduler.start()
-
+                        self._scheduler.start()    
+                                        
     def get_state(self) -> bool:
-        return True if self._enabled and self._brushsites and self._downloader else False
+        return True if self._enabled else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -309,15 +300,32 @@ class BrushFlowLowFreq(_PluginBase):
             "kwargs": {} # 定时器参数
         }]
         """
-        if self._task_enable:
-            return [{
+        services = []
+        
+        if self._task_brush_enable:
+            logger.info(f"站点刷流Brush定时服务启动，时间间隔 {self._brush_interval} 分钟")
+            services.append({
                 "id": "BrushFlowLowFreq",
-                "name": "站点刷流（低频版）服务",
+                "name": "站点刷流（低频版）Brush服务",
                 "trigger": "interval",
                 "func": self.brush,
-                "kwargs": {"minutes": self._cron}
-            }]
-        return []
+                "kwargs": {"minutes": self._brush_interval}
+            })
+            
+        if self._enabled:
+            logger.info(f"站点刷流Check定时服务启动，时间间隔 {self._check_interval} 分钟")
+            services.append({
+                "id": "BrushFlowLowFreqCheck",
+                "name": "站点刷流（低频版）Check服务",
+                "trigger": "interval",
+                "func": self.check,
+                "kwargs": {"minutes": self._check_interval}
+            })
+
+        if not services:
+            logger.info(f"站点刷流服务未开启")
+
+        return services
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
