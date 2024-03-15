@@ -1,6 +1,7 @@
 import re
 import threading
 import time
+import random
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union, Set
@@ -56,6 +57,7 @@ class BrushConfig:
         self.clear_task = config.get("clear_task", False)
         self.except_tags = config.get("except_tags", True)
         self.except_subscribe = config.get("except_subscribe", True)
+        self.brush_sequential = config.get("brush_sequential", False)
 
     @staticmethod
     def __parse_number(value):
@@ -138,12 +140,14 @@ class BrushFlowLowFreq(_PluginBase):
         self._brush_config = BrushConfig(config=config)
 
         brush_config = self._brush_config
-                
-        # 这里先过滤掉已删除的站点并保存
+                        
+        # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
+        site_id_to_public_status = {site.get("id"): site.get("public") for site in self.sites.get_indexers()}
         brush_config.brushsites = [
-            site.get("id") for site in self.sites.get_indexers() 
-            if not site.get("public") and site.get("id") in brush_config.brushsites
+            site_id for site_id in brush_config.brushsites
+            if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
         ]
+
         self.__update_config()
 
         if brush_config.clear_task:
@@ -174,7 +178,9 @@ class BrushFlowLowFreq(_PluginBase):
 
         # 如果开启&存在站点时，才需要启用后台任务
         self._task_brush_enable = brush_config.enabled and brush_config.brushsites
-                
+        
+        # brush_config.onlyonce = True        
+        
         # 检查是否启用了一次性任务
         if brush_config.onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -733,8 +739,8 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'clear_task',
-                                            'label': '清除统计数据',
+                                            'model': 'brush_sequential',
+                                            'label': '站点顺序刷流',
                                         }
                                     }
                                 ]
@@ -780,6 +786,27 @@ class BrushFlowLowFreq(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'clear_task',
+                                            'label': '清除统计数据',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
                                 },
                                 'content': [
                                     {
@@ -803,6 +830,7 @@ class BrushFlowLowFreq(_PluginBase):
             "clear_task": False,
             "except_tags": True,
             "except_subscribe": True,
+            "brush_sequential": False,
             "freeleech": "free",
             "hr": "yes",
         }
@@ -1290,14 +1318,29 @@ class BrushFlowLowFreq(_PluginBase):
                 return
                 
             statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0}
-            
-          
-            # 处理所有站点
+
+            # 获取所有站点的信息，并过滤掉不存在的站点
+            site_infos = []
             for siteid in brush_config.brushsites:
+                siteinfo = self.siteoper.get(siteid)
+                if siteinfo:
+                    site_infos.append(siteinfo)
+
+            # 根据是否开启顺序刷流来决定是否需要打乱顺序
+            if not brush_config.brush_sequential:
+                random.shuffle(site_infos)
+
+            logger.info(f"即将针对站点 {', '.join(site.name for site in site_infos)} 开始刷流")
+            
+            # 处理所有站点
+            for site in site_infos:
                 # 如果站点刷流没有正确响应，说明没有通过前置条件，其他站点也不需要继续刷流了
-                if not self.__brush_site_torrents(siteid=siteid, torrent_tasks=torrent_tasks, statistic_info=statistic_info):
+                if not self.__brush_site_torrents(siteid=site.id, torrent_tasks=torrent_tasks, statistic_info=statistic_info):
+                    logger.info(f"站点 {site.name} 刷流中途结束，停止后续站点刷流")
                     break
-             
+                else:
+                    logger.info(f"站点 {site.name} 刷流成功，继续处理后续站点")
+                
             # 保存数据
             self.save_data("torrents", torrent_tasks)
             # 保存统计数据
@@ -1327,7 +1370,7 @@ class BrushFlowLowFreq(_PluginBase):
         
         torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
          
-        logger.info(f"准备刷流种子，数量：{len(torrents)}")
+        logger.info(f"正在准备种子刷流，数量：{len(torrents)}")
         
         # 过滤种子
         for torrent in torrents:
@@ -1338,7 +1381,7 @@ class BrushFlowLowFreq(_PluginBase):
                 # logger.info(f"种子没有通过刷流前置条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
                 return False
             # else:
-                # logger.info(f"种子已通过刷流前置校验，种子：{torrent.title}|{torrent.description}")
+            #     logger.info(f"种子已通过刷流前置校验，种子：{torrent.title}|{torrent.description}")
                 
             # 判断能否通过刷流条件
             condition_passed, reason = self.__evaluate_conditions_for_brush(torrent=torrent, torrent_tasks=torrent_tasks)
@@ -1346,7 +1389,7 @@ class BrushFlowLowFreq(_PluginBase):
                 # logger.info(f"种子没有通过刷流条件校验，原因：{reason} 种子：{torrent.title}|{torrent.description}")
                 continue
             # else:
-                # logger.info(f"种子已通过刷流条件校验，种子：{torrent.title}|{torrent.description}")
+            #     logger.info(f"种子已通过刷流条件校验，种子：{torrent.title}|{torrent.description}")
 
             # 添加下载任务
             hash_string = self.__download(torrent=torrent)
@@ -1374,7 +1417,6 @@ class BrushFlowLowFreq(_PluginBase):
             logger.info(f"站点 {siteinfo.name} 刷流种子下载：{torrent.title}|{torrent.description}")
             self.__send_add_message(torrent)
             
-        logger.info(f"站点 {siteinfo.name} 刷流完成")
         return True
 
     def __evaluate_pre_conditions_for_brush(self, torrents_size: int, include_network_conditions: bool = True) -> Tuple[bool, str]:
@@ -1723,7 +1765,8 @@ class BrushFlowLowFreq(_PluginBase):
             "save_path": brush_config.save_path,
             "clear_task": brush_config.clear_task,
             "except_tags": brush_config.except_tags,
-            "except_subscribe": brush_config.except_subscribe
+            "except_subscribe": brush_config.except_subscribe,
+            "brush_sequential": brush_config.brush_sequential
         }
         
         # 使用update_config方法或其等效方法更新配置
