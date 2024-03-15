@@ -20,6 +20,7 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
 from app.schemas import Notification, NotificationType, TorrentInfo
+from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
 lock = threading.Lock()
@@ -58,6 +59,7 @@ class BrushConfig:
         self.except_tags = config.get("except_tags", True)
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
+        self.proxy_download = config.get("proxy_download", False)
 
     @staticmethod
     def __parse_number(value):
@@ -84,7 +86,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -797,6 +799,22 @@ class BrushFlowLowFreq(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'proxy_download',
+                                            'label': '代理下载种子',
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -831,6 +849,7 @@ class BrushFlowLowFreq(_PluginBase):
             "except_tags": True,
             "except_subscribe": True,
             "brush_sequential": False,
+            "proxy_download": False,
             "freeleech": "free",
             "hr": "yes",
         }
@@ -1339,7 +1358,7 @@ class BrushFlowLowFreq(_PluginBase):
                     logger.info(f"站点 {site.name} 刷流中途结束，停止后续站点刷流")
                     break
                 else:
-                    logger.info(f"站点 {site.name} 刷流成功，继续处理后续站点")
+                    logger.info(f"站点 {site.name} 刷流完成，继续处理后续站点")
                 
             # 保存数据
             self.save_data("torrents", torrent_tasks)
@@ -1766,7 +1785,8 @@ class BrushFlowLowFreq(_PluginBase):
             "clear_task": brush_config.clear_task,
             "except_tags": brush_config.except_tags,
             "except_subscribe": brush_config.except_subscribe,
-            "brush_sequential": brush_config.brush_sequential
+            "brush_sequential": brush_config.brush_sequential,
+            "proxy_download": brush_config.proxy_download
         }
         
         # 使用update_config方法或其等效方法更新配置
@@ -1813,6 +1833,9 @@ class BrushFlowLowFreq(_PluginBase):
         up_speed = int(brush_config.up_speed) if brush_config.up_speed else None
         # 下载限速
         down_speed = int(brush_config.dl_speed) if brush_config.dl_speed else None
+        # 保存地址
+        download_dir=brush_config.save_path or None
+        
         if brush_config.downloader == "qbittorrent":
             if not self.qb:
                 return None
@@ -1821,12 +1844,21 @@ class BrushFlowLowFreq(_PluginBase):
             down_speed = down_speed * 1024 if down_speed else None
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
-            state = self.qb.add_torrent(content=torrent.enclosure,
-                                        download_dir=brush_config.save_path or None,
-                                        cookie=torrent.site_cookie,
-                                        tag=["已整理", "刷流", tag],
-                                        upload_limit=up_speed,
-                                        download_limit=down_speed)
+            torrent_content = torrent.enclosure
+            if brush_config.proxy_download:
+                request = RequestUtils(cookies=torrent.site_cookie, ua=torrent.site_ua)
+                response = request.get_res(url=torrent.enclosure)
+                if response and response.ok:
+                    torrent_content = response.content
+                else:
+                    logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
+            if torrent_content:
+                state = self.qb.add_torrent(content=torrent_content,
+                                            download_dir=download_dir,
+                                            cookie=torrent.site_cookie,
+                                            tag=["已整理", "刷流", tag],
+                                            upload_limit=up_speed,
+                                            download_limit=down_speed)
             if not state:
                 return None
             else:
@@ -1836,22 +1868,32 @@ class BrushFlowLowFreq(_PluginBase):
                     logger.error(f"{brush_config.downloader} 获取种子Hash失败")
                     return None
             return torrent_hash
+        
         elif brush_config.downloader == "transmission":
             if not self.tr:
                 return None
             # 添加任务
-            torrent = self.tr.add_torrent(content=torrent.enclosure,
-                                          download_dir=brush_config.save_path or None,
+            torrent_content = torrent.enclosure
+            if brush_config.proxy_download:
+                request = RequestUtils(cookies=torrent.site_cookie, ua=torrent.site_ua)
+                response = request.get_res(url=torrent.enclosure)
+                if response and response.ok:
+                    torrent_content = response.content
+                else:
+                    logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
+            if torrent_content:
+                torrent = self.tr.add_torrent(content=torrent.enclosure,
+                                          download_dir=download_dir,
                                           cookie=torrent.site_cookie,
                                           labels=["已整理", "刷流"])
-            if not torrent:
-                return None
-            else:
-                if brush_config.up_speed or brush_config.dl_speed:
-                    self.tr.change_torrent(hash_string=torrent.hashString,
-                                           upload_limit=up_speed,
-                                           download_limit=down_speed)
-                return torrent.hashString
+                if not torrent:
+                    return None
+                else:
+                    if brush_config.up_speed or brush_config.dl_speed:
+                        self.tr.change_torrent(hash_string=torrent.hashString,
+                                            upload_limit=up_speed,
+                                            download_limit=down_speed)
+                    return torrent.hashString
         return None
 
     def __get_hash(self, torrent: Any):
