@@ -63,12 +63,22 @@ class BrushConfig:
 
     @staticmethod
     def __parse_number(value):
-        if not value:
+        if value is None or value == '':  # 更精确地检查None或空字符串
             return value
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return 0
+        elif isinstance(value, int):  # 直接判断是否为int
+            return value
+        elif isinstance(value, float):  # 直接判断是否为float
+            return value
+        else:
+            try:
+                number = float(value)
+                # 检查number是否等于其整数形式
+                if number == int(number):
+                    return int(number)
+                else:
+                    return number
+            except (ValueError, TypeError):
+                return 0
         
     def __str__(self):
         attrs = vars(self)
@@ -903,7 +913,10 @@ class BrushFlowLowFreq(_PluginBase):
                     },
                     {
                         'component': 'td',
-                        'text': data.get("title")
+                        'props': {
+                            'style': 'font-size: .75rem; line-height: 1.15rem;'
+                        },
+                        'html': data.get("title") + ("<br>" + data.get("description") if data.get("description") else "")
                     },
                     {
                         'component': 'td',
@@ -931,7 +944,7 @@ class BrushFlowLowFreq(_PluginBase):
                 ]
             } for data in data_list
         ]
-
+             
         # 拼装页面
         return [
             {
@@ -1416,13 +1429,34 @@ class BrushFlowLowFreq(_PluginBase):
                 logger.warn(f"{torrent.title} 添加刷流任务失败！")
                 continue
             
-            # # 保存任务信息
+            # 保存任务信息
             torrent_tasks[hash_string] = {
                 "site": siteinfo.id,
                 "site_name": siteinfo.name,
                 "title": torrent.title,
                 "size": torrent.size,
                 "pubdate": torrent.pubdate,
+                # "site_cookie": torrent.site_cookie,
+                # "site_ua": torrent.site_ua,
+                # "site_proxy": torrent.site_proxy,
+                # "site_order": torrent.site_order,
+                "description": torrent.description,
+                "imdbid": torrent.imdbid,
+                # "enclosure": torrent.enclosure,
+                "page_url": torrent.page_url,
+                # "seeders": torrent.seeders,
+                # "peers": torrent.peers,
+                # "grabs": torrent.grabs,
+                "date_elapsed": torrent.date_elapsed,
+                "freedate": torrent.freedate,
+                "uploadvolumefactor": torrent.uploadvolumefactor,
+                "downloadvolumefactor": torrent.downloadvolumefactor,
+                "hit_and_run": torrent.hit_and_run,
+                "volume_factor": torrent.volume_factor,
+                "freedate_diff": torrent.freedate_diff,
+                # "labels": torrent.labels,
+                # "pri_order": torrent.pri_order,
+                # "category": torrent.category,
                 "ratio": 0,
                 "downloaded": 0,
                 "uploaded": 0,
@@ -2223,7 +2257,7 @@ class BrushFlowLowFreq(_PluginBase):
             if not torrent:
                 return pub_minutes
                         
-            if torrent.site == 3 or torrent.site_name == "我堡":
+            if torrent.site_name == "我堡":
                 # 获取当前时区的UTC偏移量（以秒为单位）
                 utc_offset_seconds = time.timezone
 
