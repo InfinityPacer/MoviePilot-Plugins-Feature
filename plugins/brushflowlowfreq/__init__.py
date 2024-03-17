@@ -56,6 +56,7 @@ class BrushConfig:
         self.dl_speed = self.__parse_number(config.get("dl_speed"))
         self.save_path = config.get("save_path")
         self.clear_task = config.get("clear_task", False)
+        self.archive_task = config.get("archive_task", False)
         self.except_tags = config.get("except_tags", True)
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
@@ -163,14 +164,17 @@ class BrushFlowLowFreq(_PluginBase):
         self.__update_config()
 
         if brush_config.clear_task:
-            # 清除统计数据
             self.save_data("statistic", {})
-            # 清除种子记录
             self.save_data("torrents", {})
-            # 关闭一次性开关
+            self.save_data("archived_torrents", {})
             brush_config.clear_task = False
             self.__update_config()
             
+        elif brush_config.archive_task:
+            self.__archive_tasks()
+            brush_config.archive_task = False
+            self.__update_config()
+
         # 停止现有任务
         self.stop_service()
         
@@ -820,6 +824,22 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
+                                            'model': 'archive_task',
+                                            'label': '归档已删除种子',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
                                             'model': 'proxy_download',
                                             'label': '代理下载种子',
                                         }
@@ -856,6 +876,7 @@ class BrushFlowLowFreq(_PluginBase):
             "notify": True,
             "onlyonce": False,
             "clear_task": False,
+            "archive_task": False,
             "except_tags": True,
             "except_subscribe": True,
             "brush_sequential": False,
@@ -896,6 +917,8 @@ class BrushFlowLowFreq(_PluginBase):
         total_count = stattistic_data.get("count") or 0
         # 删除种子数
         total_deleted = stattistic_data.get("deleted") or 0
+        # 活跃种子数
+        total_active = stattistic_data.get("active") or 0
         # 种子数据明细
         torrent_trs = [
             {
@@ -1095,7 +1118,7 @@ class BrushFlowLowFreq(_PluginBase):
                         'component': 'VCol',
                         'props': {
                             'cols': 12,
-                            'md': 3,
+                            'md': 2,
                             'sm': 6
                         },
                         'content': [
@@ -1165,7 +1188,7 @@ class BrushFlowLowFreq(_PluginBase):
                         'component': 'VCol',
                         'props': {
                             'cols': 12,
-                            'md': 3,
+                            'md': 2,
                             'sm': 6
                         },
                         'content': [
@@ -1219,6 +1242,76 @@ class BrushFlowLowFreq(_PluginBase):
                                                                     'class': 'text-h6'
                                                                 },
                                                                 'text': total_deleted
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    # 活跃种子数
+                    {
+                        'component': 'VCol',
+                        'props': {
+                            'cols': 12,
+                            'md': 2,
+                            'sm': 6
+                        },
+                        'content': [
+                            {
+                                'component': 'VCard',
+                                'props': {
+                                    'variant': 'tonal',
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCardText',
+                                        'props': {
+                                            'class': 'd-flex align-center',
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'VAvatar',
+                                                'props': {
+                                                    'rounded': True,
+                                                    'variant': 'text',
+                                                    'class': 'me-3'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VImg',
+                                                        'props': {
+                                                            'src': '/plugin_icon/spider.png'
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'div',
+                                                'content': [
+                                                    {
+                                                        'component': 'span',
+                                                        'props': {
+                                                            'class': 'text-caption'
+                                                        },
+                                                        'text': '活跃种子数'
+                                                    },
+                                                    {
+                                                        'component': 'div',
+                                                        'props': {
+                                                            'class': 'd-flex align-center flex-wrap'
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'span',
+                                                                'props': {
+                                                                    'class': 'text-h6'
+                                                                },
+                                                                'text': total_active
                                                             }
                                                         ]
                                                     }
@@ -1602,8 +1695,6 @@ class BrushFlowLowFreq(_PluginBase):
                 logger.warn("连接下载器出错，将在下个时间周期重试")
                 return
             
-            statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0}
-
             # 排除MoviePilot种子
             if torrents and brush_config.except_tags:
                 torrents = self.__filter_torrents_by_tag(torrents=torrents, exclude_tag=settings.TORRENT_TAG)
@@ -1616,11 +1707,10 @@ class BrushFlowLowFreq(_PluginBase):
             all_deleted_hashes = remove_hashes + not_deleted_hashes
 
             if all_deleted_hashes:
-                statistic_info["deleted"] += len(all_deleted_hashes)
                 for hash in all_deleted_hashes:
                     torrent_tasks[hash]["deleted"] = True
             
-            self.__update_and_save_statistic_info(statistic_info, torrent_tasks)
+            self.__update_and_save_statistic_info(torrent_tasks)
             
             logger.info("刷流下载任务检查完成")
   
@@ -1706,17 +1796,33 @@ class BrushFlowLowFreq(_PluginBase):
         
         return not_deleted_hashes
 
-    def __update_and_save_statistic_info(self, statistic_info, torrent_tasks):
-        total_uploaded, total_downloaded = 0, 0
-        for task in torrent_tasks.values():
+    def __update_and_save_statistic_info(self, torrent_tasks):
+        total_count, total_uploaded, total_downloaded, total_deleted = 0, 0, 0, 0
+        
+        statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0}
+        archived_tasks = self.get_data("archived_torrents") or {}
+        combined_tasks = {**torrent_tasks, **archived_tasks}
+
+        for task in combined_tasks.values():
+            if task.get("deleted", False):
+                total_deleted += 1
             total_downloaded += task.get("downloaded", 0)
             total_uploaded += task.get("uploaded", 0)
 
-        statistic_info.update({"uploaded": total_uploaded, "downloaded": total_downloaded})
+        # 更新统计信息
+        total_count = len(combined_tasks)
+        active_tasks_count = total_count - total_deleted
+        statistic_info.update({
+            "uploaded": total_uploaded,
+            "downloaded": total_downloaded,
+            "deleted": total_deleted,
+            "count": total_count,
+            "active": active_tasks_count
+        })
 
-        logger.info(f"刷流任务统计数据：总任务数：{len(torrent_tasks)}，已删除：{statistic_info['deleted']}，"
-                    f"总上传量：{StringUtils.str_filesize(total_uploaded)}，"
-                    f"总下载量：{StringUtils.str_filesize(total_downloaded)}")
+        logger.info(f"刷流任务统计数据：总任务数：{total_count}，活跃任务数：{active_tasks_count}，已删除：{total_deleted}，"
+                f"总上传量：{StringUtils.str_filesize(total_uploaded)}，"
+                f"总下载量：{StringUtils.str_filesize(total_downloaded)}")
 
         self.save_data("statistic", statistic_info)
         self.save_data("torrents", torrent_tasks)
@@ -1817,6 +1923,7 @@ class BrushFlowLowFreq(_PluginBase):
             "dl_speed": brush_config.dl_speed,
             "save_path": brush_config.save_path,
             "clear_task": brush_config.clear_task,
+            "archive_task": brush_config.archive_task,
             "except_tags": brush_config.except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
@@ -2356,3 +2463,32 @@ class BrushFlowLowFreq(_PluginBase):
         计算保种种子体积
         """
         return sum(task.get("size", 0) for task in torrent_tasks.values() if not task.get("deleted", False))
+    
+    def __archive_tasks(self):
+        """
+        归档已经删除的种子数据
+        """
+        
+        torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
+
+        # 用于存储已删除的数据
+        archived_tasks: Dict[str, dict] = self.get_data("archived_torrents") or {}
+        
+        # 准备一个列表，记录所有需要从原始数据中删除的键
+        keys_to_delete = []
+        
+        # 遍历所有 torrent 条目
+        for key, value in torrent_tasks.items():
+            # 检查是否标记为已删除
+            if value.get("deleted"):
+                # 如果是，加入到归档字典中
+                archived_tasks[key] = value
+                # 记录键，稍后删除
+                keys_to_delete.append(key)
+        
+        # 从原始字典中移除已删除的条目
+        for key in keys_to_delete:
+            del torrent_tasks[key]
+        
+        self.save_data("archived_torrents", archived_tasks)
+        self.save_data("torrents", torrent_tasks)
