@@ -110,6 +110,14 @@ class BrushConfig:
             except Exception as e:
                 logger.error(f"解析站点配置失败，请检查配置项。错误详情: {e}")
                 self.group_site_configs = {}    
+    
+    def get_site_config(self, sitename):
+        """
+        根据站点名称获取特定的BrushConfig实例。如果没有找到站点特定的配置，则返回全局的BrushConfig实例。
+        """
+        if not self.enable_site_config:
+            return self
+        return self if not sitename else self.group_site_configs.get(sitename, self)
         
     @staticmethod
     def __parse_number(value):
@@ -130,7 +138,7 @@ class BrushConfig:
             except (ValueError, TypeError):
                 return 0 
         
-    def format_value(self, v):
+    def __format_value(self, v):
         """
         Format the value to mimic JSON serialization. This is now an instance method.
         """
@@ -139,16 +147,16 @@ class BrushConfig:
         elif isinstance(v, (int, float, bool)):
             return str(v).lower() if isinstance(v, bool) else str(v)
         elif isinstance(v, list):
-            return '[' + ', '.join(self.format_value(i) for i in v) + ']'
+            return '[' + ', '.join(self.__format_value(i) for i in v) + ']'
         elif isinstance(v, dict):
-            return '{' + ', '.join(f'"{k}": {self.format_value(val)}' for k, val in v.items()) + '}'
+            return '{' + ', '.join(f'"{k}": {self.__format_value(val)}' for k, val in v.items()) + '}'
         else:
             return str(v)
 
     def __str__(self):
         attrs = vars(self)
         # Note the use of self.format_value(v) here to call the instance method
-        attrs_str = ', '.join(f'"{k}": {self.format_value(v)}' for k, v in attrs.items())
+        attrs_str = ', '.join(f'"{k}": {self.__format_value(v)}' for k, v in attrs.items())
         return f'{{ {attrs_str} }}'
     
     def __repr__(self):
@@ -214,8 +222,6 @@ class BrushFlowLowFreq(_PluginBase):
         # 如果没有站点配置时，增加默认的配置项
         if not config.get("site_config"):
                 config["site_config"] = self.__get_demo_site_config()
-
-        logger.info(f"config:{config}")
         
         # 如果配置校验没有通过，那么这里修改配置文件后退出
         if not self.__validate_and_fix_config(config=config):
@@ -227,9 +233,7 @@ class BrushFlowLowFreq(_PluginBase):
         self._brush_config = BrushConfig(config=config)
 
         brush_config = self._brush_config
-                
-        logger.info(f"brush_config:{brush_config}")
-        
+                        
         # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
         site_id_to_public_status = {site.get("id"): site.get("public") for site in self.sites.get_indexers()}
         brush_config.brushsites = [
@@ -1611,7 +1615,6 @@ class BrushFlowLowFreq(_PluginBase):
             logger.info(f"刷流任务执行完成")
             
     def __brush_site_torrents(self, siteid, torrent_tasks, statistic_info) -> bool:
-        brush_config = self.__get_brush_config()
         
         siteinfo = self.siteoper.get(siteid)
         if not siteinfo:
@@ -1623,6 +1626,8 @@ class BrushFlowLowFreq(_PluginBase):
         if not torrents:
             logger.info(f"站点 {siteinfo.name} 没有获取到种子")
             return True
+        
+        brush_config = self.__get_brush_config(sitename=siteinfo.name)
         
         # 排除包含订阅的种子
         if brush_config.except_subscribe:
@@ -1737,7 +1742,7 @@ class BrushFlowLowFreq(_PluginBase):
         """
         过滤不符合条件的种子
         """
-        brush_config = self.__get_brush_config()
+        brush_config = self.__get_brush_config(torrent.site_name)
                 
         task_key = f"{torrent.site_name}{torrent.title}"
         if any(task_key == f"{task.get('site_name')}{task.get('title')}" for task in torrent_tasks.values()):
@@ -1852,12 +1857,12 @@ class BrushFlowLowFreq(_PluginBase):
             
             logger.info("刷流下载任务检查完成")
   
-    def __evaluate_conditions_and_delete(self, torrent_info) -> Tuple[bool, str]:
+    def __evaluate_conditions_and_delete(self, site_name: str, torrent_info: str) -> Tuple[bool, str]:
         """
         评估删除条件并返回是否应删除种子及其原因
         """
         
-        brush_config = self.__get_brush_config()
+        brush_config = self.__get_brush_config(sitename=site_name)
         
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
             reason = f"做种时间达到 {brush_config.seed_time} 小时"
@@ -1901,7 +1906,7 @@ class BrushFlowLowFreq(_PluginBase):
                 "ratio": torrent_info.get("ratio"),
             })
 
-            should_delete, reason = self.__evaluate_conditions_and_delete(torrent_info)
+            should_delete, reason = self.__evaluate_conditions_and_delete(site_name=site_name, torrent_info=torrent_info)
             if should_delete:
                 # 删除种子的具体实现可能会根据实际情况略有不同
                 downloader.delete_torrents(ids=torrent_hash, delete_file=True)
@@ -1969,12 +1974,12 @@ class BrushFlowLowFreq(_PluginBase):
 
         self.save_data("statistic", statistic_info)
         self.save_data("torrents", torrent_tasks)
-
-    def __get_brush_config(self) -> BrushConfig:
+    
+    def __get_brush_config(self, sitename: str = None) -> BrushConfig:
         """
         获取BrushConfig
         """
-        return self._brush_config
+        return self._brush_config if not sitename else self._brush_config.get_site_config(sitename=sitename)
 
     def __validate_and_fix_config(self, config: dict = None) -> bool:
         """
@@ -2111,7 +2116,7 @@ class BrushFlowLowFreq(_PluginBase):
         """
         添加下载任务
         """
-        brush_config = self.__get_brush_config()
+        brush_config = self.__get_brush_config(torrent.site_name)
 
         # 上传限速
         up_speed = int(brush_config.up_speed) if brush_config.up_speed else None
