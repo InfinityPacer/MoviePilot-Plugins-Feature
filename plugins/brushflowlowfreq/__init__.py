@@ -919,6 +919,8 @@ class BrushFlowLowFreq(_PluginBase):
         total_deleted = stattistic_data.get("deleted") or 0
         # 活跃种子数
         total_active = stattistic_data.get("active") or 0
+        # 待归档种子数
+        total_unarchived = stattistic_data.get("unarchived") or 0
         # 种子数据明细
         torrent_trs = [
             {
@@ -936,10 +938,9 @@ class BrushFlowLowFreq(_PluginBase):
                     },
                     {
                         'component': 'td',
-                        'props': {
-                            'style': 'font-size: .75rem; line-height: 1.15rem;'
-                        },
-                        'html': data.get("title") + ("<br>" + data.get("description") if data.get("description") else "")
+                        'html': f'<span style="font-size: .85rem;">{data.get("title")}</span>' +
+                               (f'<br><span style="font-size: 0.75rem;">{data.get("description")}</span>' if data.get("description") else "")
+
                     },
                     {
                         'component': 'td',
@@ -1118,7 +1119,7 @@ class BrushFlowLowFreq(_PluginBase):
                         'component': 'VCol',
                         'props': {
                             'cols': 12,
-                            'md': 2,
+                            'md': 3,
                             'sm': 6
                         },
                         'content': [
@@ -1158,7 +1159,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '下载种子数'
+                                                        'text': '下载种子数(活跃)'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1171,7 +1172,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': total_count
+                                                                'text': f"{total_count}({total_active})"
                                                             }
                                                         ]
                                                     }
@@ -1188,7 +1189,7 @@ class BrushFlowLowFreq(_PluginBase):
                         'component': 'VCol',
                         'props': {
                             'cols': 12,
-                            'md': 2,
+                            'md': 3,
                             'sm': 6
                         },
                         'content': [
@@ -1228,7 +1229,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '删除种子数'
+                                                        'text': '删除种子数(待归档)'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1241,77 +1242,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': total_deleted
-                                                            }
-                                                        ]
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    # 活跃种子数
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                            'md': 2,
-                            'sm': 6
-                        },
-                        'content': [
-                            {
-                                'component': 'VCard',
-                                'props': {
-                                    'variant': 'tonal',
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VCardText',
-                                        'props': {
-                                            'class': 'd-flex align-center',
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'VAvatar',
-                                                'props': {
-                                                    'rounded': True,
-                                                    'variant': 'text',
-                                                    'class': 'me-3'
-                                                },
-                                                'content': [
-                                                    {
-                                                        'component': 'VImg',
-                                                        'props': {
-                                                            'src': '/plugin_icon/spider.png'
-                                                        }
-                                                    }
-                                                ]
-                                            },
-                                            {
-                                                'component': 'div',
-                                                'content': [
-                                                    {
-                                                        'component': 'span',
-                                                        'props': {
-                                                            'class': 'text-caption'
-                                                        },
-                                                        'text': '活跃种子数'
-                                                    },
-                                                    {
-                                                        'component': 'div',
-                                                        'props': {
-                                                            'class': 'd-flex align-center flex-wrap'
-                                                        },
-                                                        'content': [
-                                                            {
-                                                                'component': 'span',
-                                                                'props': {
-                                                                    'class': 'text-h6'
-                                                                },
-                                                                'text': total_active
+                                                                'text': f"{total_deleted}({total_unarchived})"
                                                             }
                                                         ]
                                                     }
@@ -1442,7 +1373,7 @@ class BrushFlowLowFreq(_PluginBase):
             if not pre_condition_passed:
                 return
                 
-            statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0}
+            statistic_info = self.__get_statistic_info()
 
             # 获取所有站点的信息，并过滤掉不存在的站点
             site_infos = []
@@ -1560,7 +1491,7 @@ class BrushFlowLowFreq(_PluginBase):
             # 统计数据
             torrents_size += torrent.size
             statistic_info["count"] += 1
-            logger.info(f"站点 {siteinfo.name} 刷流种子下载：{torrent.title}|{torrent.description}")
+            logger.info(f"站点 {siteinfo.name}， 新增刷流种子下载：{torrent.title}|{torrent.description}")
             self.__send_add_message(torrent)
             
         return True
@@ -1749,7 +1680,11 @@ class BrushFlowLowFreq(_PluginBase):
         
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
-            site_name = torrent_tasks.get(torrent_hash, {}).get("site_name", "")
+            torrent_task = torrent_tasks.get(torrent_hash, {})
+            site_name = torrent_task.get("site_name", "")
+            torrent_title = torrent_task.get("title", "")
+            torrent_desc = torrent_task.get("description", "")
+            
             torrent_info = self.__get_torrent_info(torrent)
             
             # 更新上传量、下载量
@@ -1763,10 +1698,9 @@ class BrushFlowLowFreq(_PluginBase):
             if should_delete:
                 # 删除种子的具体实现可能会根据实际情况略有不同
                 downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                remove_hashes.append(torrent_info.get("hash"))
-                torrent_title = torrent_info.get("title")
-                self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, reason=reason)
-                logger.info(f"{reason}，删除种子：{torrent_title}")
+                remove_hashes.append(torrent_hash)
+                self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc, reason=reason)
+                logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
         return remove_hashes
     
@@ -1786,23 +1720,22 @@ class BrushFlowLowFreq(_PluginBase):
             # 获取对应的任务信息
             torrent_info = torrent_tasks[hash_value]
             # 获取site_name和torrent_title
-            site_name = torrent_info["site_name"]
-            torrent_title = torrent_info["title"]
-            logger.info(f"下载器中找不到种子，可能已经被删除，种子信息:{torrent_info}")
-            # 发送删除消息
-            self.__send_delete_message(site_name=site_name,
-                                        torrent_title=torrent_title,
-                                        reason="下载器中找不到种子")
-        
+            site_name = torrent_info.get("site_name", "")
+            torrent_title = torrent_info.get("title", "")
+            torrent_desc = torrent_info.get("description", "")                        
+            self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc, reason="下载器中找不到种子")
+            logger.info(f"站点：{site_name}，下载器中找不到种子，删除种子：{torrent_title}|{torrent_desc}")
         return not_deleted_hashes
 
+    #endregion
+    
     def __update_and_save_statistic_info(self, torrent_tasks):
-        total_count, total_uploaded, total_downloaded, total_deleted = 0, 0, 0, 0
-        
-        statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0}
+        total_count, total_uploaded, total_downloaded, total_deleted, total_unarchived = 0, 0, 0, 0, 0
+    
+        statistic_info = self.__get_statistic_info()
         archived_tasks = self.get_data("archived_torrents") or {}
         combined_tasks = {**torrent_tasks, **archived_tasks}
-
+        
         for task in combined_tasks.values():
             if task.get("deleted", False):
                 total_deleted += 1
@@ -1812,22 +1745,23 @@ class BrushFlowLowFreq(_PluginBase):
         # 更新统计信息
         total_count = len(combined_tasks)
         active_tasks_count = total_count - total_deleted
+        total_unarchived = len([task for task in torrent_tasks.values() if task.get("deleted", False)])
         statistic_info.update({
             "uploaded": total_uploaded,
             "downloaded": total_downloaded,
             "deleted": total_deleted,
+            "unarchived": total_unarchived,
             "count": total_count,
             "active": active_tasks_count
         })
 
         logger.info(f"刷流任务统计数据：总任务数：{total_count}，活跃任务数：{active_tasks_count}，已删除：{total_deleted}，"
+                f"待归档：{total_unarchived}，"
                 f"总上传量：{StringUtils.str_filesize(total_uploaded)}，"
                 f"总下载量：{StringUtils.str_filesize(total_downloaded)}")
 
         self.save_data("statistic", statistic_info)
         self.save_data("torrents", torrent_tasks)
-
-    #endregion
 
     def __get_brush_config(self) -> BrushConfig:
         """
@@ -2245,19 +2179,27 @@ class BrushFlowLowFreq(_PluginBase):
         logger.error(message)
         self.systemmessage.put(message)
 
-    def __send_delete_message(self, site_name: str, torrent_title: str, reason: str):
+    def __send_delete_message(self, site_name: str, torrent_title: str, torrent_desc: str, reason: str):
         """
         发送删除种子的消息
         """
         brush_config = self.__get_brush_config()
         if not brush_config.notify:
             return
+        msg_text = ""
+        if site_name:
+            msg_text = f"站点：{site_name}"
+        if torrent_title:
+            msg_text = f"{msg_text}\n标题：{torrent_title}"
+        if torrent_desc:
+            msg_text = f"{msg_text}\n描述：{torrent_desc}"
+        if reason:
+            msg_text = f"{msg_text}\n原因：{reason}"
+            
         self.chain.post_message(Notification(
             mtype=NotificationType.SiteMessage,
             title=f"【刷流任务删种】",
-            text=f"站点：{site_name}\n"
-                 f"标题：{torrent_title}\n"
-                 f"原因：{reason}"
+            text=msg_text
         ))
 
     def __send_add_message(self, torrent: TorrentInfo):
@@ -2272,6 +2214,8 @@ class BrushFlowLowFreq(_PluginBase):
             msg_text = f"站点：{torrent.site_name}"
         if torrent.title:
             msg_text = f"{msg_text}\n标题：{torrent.title}"
+        if torrent.description:
+            msg_text = f"{msg_text}\n描述：{torrent.description}"
         if torrent.size:
             if str(torrent.size).replace(".", "").isdigit():
                 size = StringUtils.str_filesize(torrent.size)
@@ -2468,7 +2412,6 @@ class BrushFlowLowFreq(_PluginBase):
         """
         归档已经删除的种子数据
         """
-        
         torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
 
         # 用于存储已删除的数据
@@ -2492,3 +2435,9 @@ class BrushFlowLowFreq(_PluginBase):
         
         self.save_data("archived_torrents", archived_tasks)
         self.save_data("torrents", torrent_tasks)
+        # 归档需要更新一下统计数据
+        self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
+        
+    def __get_statistic_info(self) -> Dict[str, dict]:
+        statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0, "active": 0, "unarchived": 0}
+        return statistic_info
