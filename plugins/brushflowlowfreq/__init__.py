@@ -2,6 +2,7 @@ import re
 import threading
 import time
 import random
+import json
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union, Set
@@ -29,7 +30,7 @@ class BrushConfig:
     """
     刷流配置
     """
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, process_site_config=True):
         self.enabled = config.get("enabled", False)
         self.notify = config.get("notify", True)
         self.onlyonce = config.get("onlyonce", False)
@@ -61,7 +62,55 @@ class BrushConfig:
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_download = config.get("proxy_download", False)
+        self.enable_site_config = config.get("enable_site_config", False)
+        self.site_config = config.get("site_config", "[]")
+        self.group_site_configs = {}
+        
+        if self.enable_site_config and process_site_config:
+            self.__initialize_site_config()
+        
+    def __initialize_site_config(self):
+            if not self.site_config:
+                self.group_site_configs = {}
+                
+            # 定义允许覆盖的字段列表
+            allowed_fields = {
+                "freeleech",
+                "hr",
+                "include",
+                "exclude",
+                "size",
+                "seeder",
+                "pubtime",
+                "seed_time",
+                "seed_ratio",
+                "seed_size",
+                "download_time",
+                "seed_avgspeed",
+                "seed_inactivetime",
+                "save_path",
+                "proxy_download",
+                # 当新增支持字段时，仅在此处添加字段名
+            }
+            try:
+                site_configs = json.loads(self.site_config)
+                self.group_site_configs = {}
+                for config in site_configs:
+                    sitename = config.get("sitename")
+                    if not sitename:
+                        continue
 
+                    # 只从站点特定配置中获取允许的字段
+                    site_specific_config = {key: config[key] for key in allowed_fields & set(config.keys())}
+
+                    full_config = {key: getattr(self, key) for key in vars(self) if key not in ['group_site_configs', 'site_config']}
+                    full_config.update(site_specific_config)
+                    
+                    self.group_site_configs[sitename] = BrushConfig(config=full_config, process_site_config=False)
+            except Exception as e:
+                logger.error(f"解析站点配置失败，请检查配置项。错误详情: {e}")
+                self.group_site_configs = {}    
+        
     @staticmethod
     def __parse_number(value):
         if value is None or value == '':  # 更精确地检查None或空字符串
@@ -79,12 +128,31 @@ class BrushConfig:
                 else:
                     return number
             except (ValueError, TypeError):
-                return 0
+                return 0 
         
+    def format_value(self, v):
+        """
+        Format the value to mimic JSON serialization. This is now an instance method.
+        """
+        if isinstance(v, str):
+            return f'"{v}"'
+        elif isinstance(v, (int, float, bool)):
+            return str(v).lower() if isinstance(v, bool) else str(v)
+        elif isinstance(v, list):
+            return '[' + ', '.join(self.format_value(i) for i in v) + ']'
+        elif isinstance(v, dict):
+            return '{' + ', '.join(f'"{k}": {self.format_value(val)}' for k, val in v.items()) + '}'
+        else:
+            return str(v)
+
     def __str__(self):
         attrs = vars(self)
-        attrs_str = ', '.join(f"{k}: {v}" for k, v in attrs.items())
-        return f"{self.__class__.__name__}({attrs_str})"
+        # Note the use of self.format_value(v) here to call the instance method
+        attrs_str = ', '.join(f'"{k}": {self.format_value(v)}' for k, v in attrs.items())
+        return f'{{ {attrs_str} }}'
+    
+    def __repr__(self):
+        return self.__str__()
 
 class BrushFlowLowFreq(_PluginBase):
     
@@ -142,6 +210,12 @@ class BrushFlowLowFreq(_PluginBase):
         if not config:
             logger.info("站点刷流任务出错，无法获取插件配置")
             return False
+
+        # 如果没有站点配置时，增加默认的配置项
+        if not config.get("site_config"):
+                config["site_config"] = self.__get_demo_site_config()
+
+        logger.info(f"config:{config}")
         
         # 如果配置校验没有通过，那么这里修改配置文件后退出
         if not self.__validate_and_fix_config(config=config):
@@ -149,11 +223,13 @@ class BrushFlowLowFreq(_PluginBase):
             self._brush_config.enabled = False
             self.__update_config()
             return
-        
+    
         self._brush_config = BrushConfig(config=config)
 
         brush_config = self._brush_config
-                        
+                
+        logger.info(f"brush_config:{brush_config}")
+        
         # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
         site_id_to_public_status = {site.get("id"): site.get("public") for site in self.sites.get_indexers()}
         brush_config.brushsites = [
@@ -166,7 +242,7 @@ class BrushFlowLowFreq(_PluginBase):
         if brush_config.clear_task:
             self.save_data("statistic", {})
             self.save_data("torrents", {})
-            self.save_data("archived_torrents", {})
+            self.save_data("archived", {})
             brush_config.clear_task = False
             self.__update_config()
             
@@ -280,6 +356,7 @@ class BrushFlowLowFreq(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
+        
         # 站点的可选项
         site_options = [{"title": site.get("name"), "value": site.get("id")}
                         for site in self.siteshelper.get_indexers()]
@@ -850,6 +927,44 @@ class BrushFlowLowFreq(_PluginBase):
                     },
                     {
                         'component': 'VRow',
+                        "content": [
+                             {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enable_site_config',
+                                            'label': '站点独立配置',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {
+                                    "cols": 12,
+                                    "md": 4,
+                                    # "class": "d-flex justify-end"
+                                },
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "dialog_closed",
+                                            "label": "设置站点"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
@@ -868,6 +983,97 @@ class BrushFlowLowFreq(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "component": "VDialog",
+                        "props": {
+                            "model": "dialog_closed",
+                            "max-width": "80rem",
+                            "overlay-class": "v-dialog--scrollable v-overlay--scroll-blocked",
+                            "content-class": "v-card v-card--density-default v-card--variant-elevated rounded-t"
+                        },
+                        "content": [
+                            {
+                                "component": "VCard",
+                                "content": [
+                                    {
+                                        "component": "VCardItem",
+                                        "text": "设置站点配置"
+                                    },
+                                    {
+                                        "component": "VCardText",
+                                        "props": {},
+                                        "content": [
+                                            {
+                                                'component': 'VRow',
+                                                'content': [
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                "component": "VTextarea",
+                                                                "props": {
+                                                                    "model": "site_config",
+                                                                    "placeholder": "请输入站点配置",
+                                                                    "label": "站点配置",
+                                                                    "rows": 16
+                                                                }
+                                                            }
+                                                        ] 
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VRow',
+                                                'content': [
+                                                    {
+                                                        'component': 'VCol',
+                                                        'props': {
+                                                            'cols': 12,
+                                                        },
+                                                        'content': [
+                                                            {
+                                                                'component': 'VAlert',
+                                                                'props': {
+                                                                    'type': 'info',
+                                                                    'variant': 'tonal'
+                                                                    # 'text': "注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考 <a href='https://www.baidu.com' target='_blank'>https://www.baidu.com</a>"
+                                                                },
+                                                                'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                    # {
+                                    #     "component": "VCardActions",
+                                    #     "content": [
+                                    #         {
+                                    #             "component": "div",
+                                    #             "props": {
+                                    #                 "class": "d-flex w-100 justify-end",
+                                    #                 "style": "margin-right: 5px"
+                                    #             },
+                                    #             "content": [
+                                    #                 {
+                                    #                     "component": "VSwitch",
+                                    #                     "props": {
+                                    #                         "model": "dialog_closed",
+                                    #                         "label": "关闭"
+                                    #                     }
+                                    #                 }
+                                    #             ]
+                                    #         }
+                                    #     ]
+                                    # }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -883,6 +1089,7 @@ class BrushFlowLowFreq(_PluginBase):
             "proxy_download": False,
             "freeleech": "free",
             "hr": "yes",
+            "enable_site_config": False
         }
 
     def get_page(self) -> List[dict]:
@@ -1733,7 +1940,7 @@ class BrushFlowLowFreq(_PluginBase):
         total_count, total_uploaded, total_downloaded, total_deleted, total_unarchived = 0, 0, 0, 0, 0
     
         statistic_info = self.__get_statistic_info()
-        archived_tasks = self.get_data("archived_torrents") or {}
+        archived_tasks = self.get_data("archived") or {}
         combined_tasks = {**torrent_tasks, **archived_tasks}
         
         for task in combined_tasks.values():
@@ -1861,7 +2068,9 @@ class BrushFlowLowFreq(_PluginBase):
             "except_tags": brush_config.except_tags,
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
-            "proxy_download": brush_config.proxy_download
+            "proxy_download": brush_config.proxy_download,
+            "enable_site_config": brush_config.enable_site_config,
+            "site_config": brush_config.site_config
         }
         
         # 使用update_config方法或其等效方法更新配置
@@ -1909,7 +2118,7 @@ class BrushFlowLowFreq(_PluginBase):
         # 下载限速
         down_speed = int(brush_config.dl_speed) if brush_config.dl_speed else None
         # 保存地址
-        download_dir=brush_config.save_path or None
+        download_dir = brush_config.save_path or None
         
         if brush_config.downloader == "qbittorrent":
             if not self.qb:
@@ -2415,7 +2624,7 @@ class BrushFlowLowFreq(_PluginBase):
         torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
 
         # 用于存储已删除的数据
-        archived_tasks: Dict[str, dict] = self.get_data("archived_torrents") or {}
+        archived_tasks: Dict[str, dict] = self.get_data("archived") or {}
         
         # 准备一个列表，记录所有需要从原始数据中删除的键
         keys_to_delete = []
@@ -2433,7 +2642,7 @@ class BrushFlowLowFreq(_PluginBase):
         for key in keys_to_delete:
             del torrent_tasks[key]
         
-        self.save_data("archived_torrents", archived_tasks)
+        self.save_data("archived", archived_tasks)
         self.save_data("torrents", torrent_tasks)
         # 归档需要更新一下统计数据
         self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
@@ -2441,3 +2650,28 @@ class BrushFlowLowFreq(_PluginBase):
     def __get_statistic_info(self) -> Dict[str, dict]:
         statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0, "active": 0, "unarchived": 0}
         return statistic_info
+
+    def __get_demo_site_config(self) -> str:
+        desc = ("以下为配置示例，请参考 "
+                "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
+                "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
+        config = """[{
+    "sitename": "测试站点",
+    "freeleech": "free",
+    "hr": "no",
+    "include": "",
+    "exclude": "",
+    "size": "10-500",
+    "seeder": "1",
+    "pubtime": "5-120",
+    "seed_time": 120,
+    "seed_ratio": "",
+    "seed_size": "",
+    "download_time": "",
+    "seed_avgspeed": "",
+    "seed_inactivetime": "",
+    "save_path": "/downloads/site1",
+    "proxy_download": false
+}]"""
+        return desc + config
+        

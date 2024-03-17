@@ -25,3 +25,67 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
   - [x] 支持归档已删除种子，增加活跃、待归档种子统计
   - [x] 刷流消息通知支持显示副标题
   - [ ] 支持统计手工刷流种子（仅qb）
+  
+  ##### 站点独立配置
+
+  目前站点独立配置支持以下配置项，配置格式为json，通过sitename进行匹配，没有找到对应配置项时，则以全局配置项为准
+
+  - `sitename`: 站点名称
+  - `freeleech`: 促销
+    - `''`: 全部（包括普通）
+    - `'free'`: 免费
+    - `'2xfree'`: 2X免费
+  - `hr`: 排除H&R
+    - `'yes'`: 是
+    - `'no'`: 否
+  - `include`: 包含规则
+  - `exclude`: 排除规则
+  - `size`: 种子大小
+  - `seeder`: 做种人数
+  - `pubtime`: 发布时间
+  - `seed_time`: 做种时间
+  - `seed_ratio`: 分享率
+  - `seed_size`: 上传量
+  - `download_time`: 下载超时时间
+  - `seed_avgspeed`: 平均上传速度
+  - `seed_inactivetime`: 未活动时间
+  - `save_path`: 保存目录
+  - `proxy_download`: 代理下载种子’
+  
+  配置示例
+
+  ```json
+  [{
+      "sitename": "站点1",
+      "freeleech": "free",
+      "hr": "no",
+      "include": "",
+      "exclude": "",
+      "size": "10-500",
+      "seeder": "1",
+      "pubtime": "5-120",
+      "seed_time": 120,
+      "seed_ratio": "",
+      "seed_size": "",
+      "download_time": "",
+      "seed_avgspeed": "",
+      "seed_inactivetime": "",
+      "save_path": "/downloads/site1",
+      "proxy_download": false
+  }, {
+      "sitename": "站点2",
+      "hr": "yes",
+      "size": "10-500",
+      "seeder": "5-10",
+      "pubtime": "5-120",
+      "seed_time": 96,
+      "save_path": "/downloads/site2",
+      "proxy_download": true
+  }]
+  ```  
+
+
+
+
+
+
