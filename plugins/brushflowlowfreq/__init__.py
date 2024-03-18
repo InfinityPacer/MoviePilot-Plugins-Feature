@@ -244,10 +244,9 @@ class BrushFlowLowFreq(_PluginBase):
         self.__update_config()
 
         if brush_config.clear_task:
-            self.save_data("statistic", {})
-            self.save_data("torrents", {})
-            self.save_data("archived", {})
+            self.__clear_tasks()
             brush_config.clear_task = False
+            brush_config.archive_task = False
             self.__update_config()
             
         elif brush_config.archive_task:
@@ -1100,12 +1099,8 @@ class BrushFlowLowFreq(_PluginBase):
         # 种子明细
         torrents = self.get_data("torrents") or {}
         # 统计数据
-        stattistic_data: Dict[str, dict] = self.get_data("statistic") or {
-            "count": 0,
-            "deleted": 0,
-            "uploaded": 0,
-            "downloaded": 0,
-        }
+        statistic_info = self.__get_statistic_info()
+   
         if not torrents:
             return [
                 {
@@ -1120,18 +1115,22 @@ class BrushFlowLowFreq(_PluginBase):
             data_list = torrents.values()
             # 按time倒序排序
             data_list = sorted(data_list, key=lambda x: x.get("time") or 0, reverse=True)
-        # 总上传量格式化
-        total_upload = StringUtils.str_filesize(stattistic_data.get("uploaded") or 0)
-        # 总下载量格式化
-        total_download = StringUtils.str_filesize(stattistic_data.get("downloaded") or 0)
+        # 总上传量
+        total_uploaded = StringUtils.str_filesize(statistic_info.get("uploaded") or 0)
+        # 总下载量
+        total_downloaded = StringUtils.str_filesize(statistic_info.get("downloaded") or 0)
         # 下载种子数
-        total_count = stattistic_data.get("count") or 0
+        total_count = statistic_info.get("count") or 0
         # 删除种子数
-        total_deleted = stattistic_data.get("deleted") or 0
-        # 活跃种子数
-        total_active = stattistic_data.get("active") or 0
+        total_deleted = statistic_info.get("deleted") or 0
         # 待归档种子数
-        total_unarchived = stattistic_data.get("unarchived") or 0
+        total_unarchived = statistic_info.get("unarchived") or 0
+        # 活跃种子数
+        total_active = statistic_info.get("active") or 0
+        # 活跃上传量
+        total_active_uploaded = StringUtils.str_filesize(statistic_info.get("active_uploaded") or 0)
+        # 活跃下载量
+        total_active_downloaded = StringUtils.str_filesize(statistic_info.get("active_downloaded") or 0)
         # 种子数据明细
         torrent_trs = [
             {
@@ -1230,7 +1229,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '总上传量'
+                                                        'text': '总上传量(活跃)'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1243,7 +1242,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': total_upload
+                                                                'text': f"{total_uploaded}({total_active_uploaded})"
                                                             }
                                                         ]
                                                     }
@@ -1300,7 +1299,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '总下载量'
+                                                        'text': '总下载量(活跃)'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1313,7 +1312,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': total_download
+                                                                'text': f"{total_downloaded}({total_active_downloaded})"
                                                             }
                                                         ]
                                                     }
@@ -1942,8 +1941,9 @@ class BrushFlowLowFreq(_PluginBase):
     #endregion
     
     def __update_and_save_statistic_info(self, torrent_tasks):
-        total_count, total_uploaded, total_downloaded, total_deleted, total_unarchived = 0, 0, 0, 0, 0
-    
+        total_count, total_uploaded, total_downloaded, total_deleted = 0, 0, 0, 0
+        active_uploaded, active_downloaded, active_count, total_unarchived = 0, 0, 0, 0
+
         statistic_info = self.__get_statistic_info()
         archived_tasks = self.get_data("archived") or {}
         combined_tasks = {**torrent_tasks, **archived_tasks}
@@ -1954,27 +1954,39 @@ class BrushFlowLowFreq(_PluginBase):
             total_downloaded += task.get("downloaded", 0)
             total_uploaded += task.get("uploaded", 0)
 
+        # 计算torrent_tasks中未标记为删除的活跃任务的统计信息，及待归档的任务数
+        for task in torrent_tasks.values():
+            if not task.get("deleted", False):
+                active_uploaded += task.get("uploaded", 0)
+                active_downloaded += task.get("downloaded", 0)
+                active_count += 1
+            else:
+                total_unarchived += 1
+
         # 更新统计信息
         total_count = len(combined_tasks)
-        active_tasks_count = total_count - total_deleted
-        total_unarchived = len([task for task in torrent_tasks.values() if task.get("deleted", False)])
         statistic_info.update({
             "uploaded": total_uploaded,
             "downloaded": total_downloaded,
             "deleted": total_deleted,
             "unarchived": total_unarchived,
             "count": total_count,
-            "active": active_tasks_count
+            "active": active_count,
+            "active_uploaded": active_uploaded,
+            "active_downloaded": active_downloaded
         })
 
-        logger.info(f"刷流任务统计数据：总任务数：{total_count}，活跃任务数：{active_tasks_count}，已删除：{total_deleted}，"
+        logger.info(f"刷流任务统计数据：总任务数：{total_count}，活跃任务数：{active_count}，已删除：{total_deleted}，"
                 f"待归档：{total_unarchived}，"
+                f"活跃上传量：{StringUtils.str_filesize(active_uploaded)}，"
+                f"活跃下载量：{StringUtils.str_filesize(active_downloaded)}，"
                 f"总上传量：{StringUtils.str_filesize(total_uploaded)}，"
                 f"总下载量：{StringUtils.str_filesize(total_downloaded)}")
 
         self.save_data("statistic", statistic_info)
         self.save_data("torrents", torrent_tasks)
-    
+
+
     def __get_brush_config(self, sitename: str = None) -> BrushConfig:
         """
         获取BrushConfig
@@ -2652,8 +2664,23 @@ class BrushFlowLowFreq(_PluginBase):
         # 归档需要更新一下统计数据
         self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
         
+    def __clear_tasks(self):
+        """
+        清除统计数据（清理已删除和已归档的数据，保留活跃种子数据）
+        """
+        torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
+        
+        to_delete = [key for key, value in torrent_tasks.items() if value.get("deleted")]
+        for key in to_delete:
+            del torrent_tasks[key]
+        
+        self.save_data("torrents", torrent_tasks)
+        self.save_data("archived", {})
+        # 需要更新一下统计数据
+        self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
+              
     def __get_statistic_info(self) -> Dict[str, dict]:
-        statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0, "active": 0, "unarchived": 0}
+        statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0, "unarchived": 0, "active": 0, "active_uploaded": 0, "active_downloaded": 0}
         return statistic_info
 
     def __get_demo_site_config(self) -> str:
