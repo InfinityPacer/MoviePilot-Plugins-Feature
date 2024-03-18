@@ -62,6 +62,7 @@ class BrushConfig:
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_download = config.get("proxy_download", False)
+        self.active_time_range = config.get("active_time_range")
         self.enable_site_config = config.get("enable_site_config", False)
         self.site_config = config.get("site_config", "[]")
         self.group_site_configs = {}
@@ -173,7 +174,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -425,6 +426,10 @@ class BrushFlowLowFreq(_PluginBase):
                         'content': [
                             {
                                 'component': 'VCol',
+                                'props': {
+                                    "cols": 12,
+                                    "md": 8
+                                },
                                 'content': [
                                     {
                                         'component': 'VSelect',
@@ -434,6 +439,23 @@ class BrushFlowLowFreq(_PluginBase):
                                             'model': 'brushsites',
                                             'label': '刷流站点',
                                             'items': site_options
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'active_time_range',
+                                            'label': '开启时间段',
+                                            'placeholder': '如：00:00-08:00'
                                         }
                                     }
                                 ]
@@ -1571,7 +1593,11 @@ class BrushFlowLowFreq(_PluginBase):
         
         if not brush_config.brushsites or not brush_config.downloader:
             return
-
+        
+        if not self.__is_current_time_in_range():
+            logger.info(f"当前不在指定的刷流时间区间内，刷流操作将暂时暂停")
+            return
+        
         with lock:
             logger.info(f"开始执行刷流任务 ...")
           
@@ -1815,6 +1841,10 @@ class BrushFlowLowFreq(_PluginBase):
 
         if not brush_config.downloader:
             return
+        
+        if not self.__is_current_time_in_range():
+           logger.info(f"当前不在指定的刷流时间区间内，检查操作将暂时暂停")
+           return
 
         with lock:
             logger.info("开始检查刷流下载任务 ...")
@@ -2039,7 +2069,13 @@ class BrushFlowLowFreq(_PluginBase):
                 self.__log_and_notify_error(f"站点刷流任务出错，{desc}设置错误：{value}")
                 config[attr] = 0
                 found_error = True  # 更新错误标志
-            
+        
+        active_time_range = config.get("active_time_range")    
+        if active_time_range and  not self.__is_valid_time_range(time_range=active_time_range):
+            self.__log_and_notify_error(f"站点刷流任务出错，开启时间段设置错误：{active_time_range}")
+            config["active_time_range"] = None
+            found_error = True # 更新错误标志
+        
         # 如果发现任何错误，返回False；否则返回True
         return not found_error
 
@@ -2086,6 +2122,7 @@ class BrushFlowLowFreq(_PluginBase):
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
             "proxy_download": brush_config.proxy_download,
+            "active_time_range": brush_config.active_time_range,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config
         }
@@ -2680,6 +2717,9 @@ class BrushFlowLowFreq(_PluginBase):
         self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
               
     def __get_statistic_info(self) -> Dict[str, dict]:
+        """
+        获取统计数据
+        """
         statistic_info = self.get_data("statistic") or {"count": 0, "deleted": 0, "uploaded": 0, "downloaded": 0, "unarchived": 0, "active": 0, "active_uploaded": 0, "active_downloaded": 0}
         return statistic_info
 
@@ -2707,3 +2747,43 @@ class BrushFlowLowFreq(_PluginBase):
 }]"""
         return desc + config
         
+    def __is_valid_time_range(self, time_range: str) -> bool:
+        """检查时间范围字符串是否有效：格式为"HH:MM-HH:MM"，且时间有效"""
+        if not time_range:
+            return False
+        
+        # 使用正则表达式匹配格式
+        pattern = re.compile(r'^\d{2}:\d{2}-\d{2}:\d{2}$')
+        if not pattern.match(time_range):
+            return False
+        
+        try:
+            start_str, end_str = time_range.split('-')
+            datetime.strptime(start_str, '%H:%M').time()
+            datetime.strptime(end_str, '%H:%M').time()
+        except Exception:
+            return False
+
+        return True
+        
+    def __is_current_time_in_range(self) -> bool:
+        """判断当前时间是否在开启时间区间内"""
+        
+        brush_config = self.__get_brush_config()
+        active_time_range = brush_config.active_time_range
+        
+        if not self.__is_valid_time_range(active_time_range):
+            # 如果时间范围格式不正确或不存在，说明当前没有开启时间段，返回True
+            return True
+        
+        start_str, end_str = active_time_range.split('-')
+        start_time = datetime.strptime(start_str, '%H:%M').time()
+        end_time = datetime.strptime(end_str, '%H:%M').time()
+        now = datetime.now().time()
+
+        if start_time <= end_time:
+            # 情况1: 时间段不跨越午夜
+            return start_time <= now <= end_time
+        else:
+            # 情况2: 时间段跨越午夜
+            return now >= start_time or now <= end_time
