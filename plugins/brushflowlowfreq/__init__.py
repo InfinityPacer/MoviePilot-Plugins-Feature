@@ -64,6 +64,7 @@ class BrushConfig:
         self.proxy_download = config.get("proxy_download", False)
         self.active_time_range = config.get("active_time_range")
         self.enable_site_config = config.get("enable_site_config", False)
+        self.brush_tag = "刷流"
         self.site_config = config.get("site_config", "[]")
         self.group_site_configs = {}
         
@@ -190,7 +191,6 @@ class BrushFlowLowFreq(_PluginBase):
     siteshelper = None
     siteoper = None
     torrents = None
-    sites = None
     qb = None
     tr = None
     # 刷流配置
@@ -212,7 +212,6 @@ class BrushFlowLowFreq(_PluginBase):
         self.siteshelper = SitesHelper()
         self.siteoper = SiteOper()
         self.torrents = TorrentsChain()
-        self.sites = SitesHelper()
         self.subscribeoper = SubscribeOper()
         self._task_brush_enable = False
         
@@ -236,7 +235,7 @@ class BrushFlowLowFreq(_PluginBase):
         brush_config = self._brush_config
                         
         # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
-        site_id_to_public_status = {site.get("id"): site.get("public") for site in self.sites.get_indexers()}
+        site_id_to_public_status = {site.get("id"): site.get("public") for site in self.siteshelper.get_indexers()}
         brush_config.brushsites = [
             site_id for site_id in brush_config.brushsites
             if site_id in site_id_to_public_status and not site_id_to_public_status[site_id]
@@ -276,7 +275,7 @@ class BrushFlowLowFreq(_PluginBase):
         self._task_brush_enable = brush_config.enabled and brush_config.brushsites
         
         # brush_config.onlyonce = True        
-        
+
         # 检查是否启用了一次性任务
         if brush_config.onlyonce:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -1849,33 +1848,42 @@ class BrushFlowLowFreq(_PluginBase):
         with lock:
             logger.info("开始检查刷流下载任务 ...")
             torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
-            torrent_check_hashes = list(torrent_tasks.keys())
+            unmanaged_tasks: Dict[str, dict] = self.get_data("unmanaged") or {}
 
+            downloader = self.__get_downloader(brush_config.downloader)
+            if not downloader:
+                logger.warn("无法获取下载器实例，将在下个时间周期重试")
+                return
+            
+            seeding_torrents, error = downloader.get_torrents()
+            if error:
+                logger.warn("连接下载器出错，将在下个时间周期重试")
+                return
+
+            seeding_torrents_dict = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
+            
+            self.__update_seeding_tasks_based_on_tags(torrent_tasks=torrent_tasks, unmanaged_tasks=unmanaged_tasks, seeding_torrents_dict=seeding_torrents_dict)
+
+            torrent_check_hashes = list(torrent_tasks.keys())
             if not torrent_tasks or not torrent_check_hashes:
                 logger.info("没有需要检查的刷流下载任务")
                 return
 
             logger.info(f"共有 {len(torrent_check_hashes)} 个任务正在刷流，开始检查任务状态")
 
-            downloader = self.__get_downloader(brush_config.downloader)
-            if not downloader:
-                logger.warn("无法获取下载器实例，将在下个时间周期重试")
-                return
+            # 获取到当前所有做种数据中需要被检查的种子数据
+            check_torrents = [seeding_torrents_dict[th] for th in torrent_check_hashes if th in seeding_torrents_dict]
 
-            torrents, error = downloader.get_torrents(ids=torrent_check_hashes)
-            if error:
-                logger.warn("连接下载器出错，将在下个时间周期重试")
-                return
+            # 先通过获取的全量种子，判断是否有种子需要被删除
+            not_deleted_hashes = self.__handle_not_deleted_hashes(torrent_tasks, torrent_check_hashes, check_torrents) or []
             
             # 排除MoviePilot种子
-            if torrents and brush_config.except_tags:
-                torrents = self.__filter_torrents_by_tag(torrents=torrents, exclude_tag=settings.TORRENT_TAG)
+            if check_torrents and brush_config.except_tags:
+                check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents, exclude_tag=settings.TORRENT_TAG)
 
-            # 统计删除状态
-            remove_hashes = self.__delete_torrent_and_get_removes(torrents=torrents, torrent_tasks=torrent_tasks) or []
-                 
-            not_deleted_hashes = self.__handle_not_deleted_hashes(torrent_tasks, torrent_check_hashes, torrents) or []
-            
+            # 这里需要过滤种子后，再进行统计删除状态
+            remove_hashes = self.__delete_torrent_and_get_removes(torrents=check_torrents, torrent_tasks=torrent_tasks) or []
+                             
             all_deleted_hashes = remove_hashes + not_deleted_hashes
 
             if all_deleted_hashes:
@@ -1884,7 +1892,51 @@ class BrushFlowLowFreq(_PluginBase):
             
             self.__update_and_save_statistic_info(torrent_tasks)
             
+            self.save_data("torrents", torrent_tasks)
+
             logger.info("刷流下载任务检查完成")
+  
+    def __update_seeding_tasks_based_on_tags(self, torrent_tasks: Dict[str, dict], unmanaged_tasks: Dict[str, dict], seeding_torrents_dict: Dict[str, Any]):
+        brush_config = self.__get_brush_config()
+        
+        if not brush_config.downloader == "qbittorrent":
+            return
+        
+        # 基于 seeding_torrents_dict 的信息更新或添加到 torrent_tasks
+        for torrent_hash, torrent in seeding_torrents_dict.items():
+            tags = self.__get_label(torrent=torrent)
+            # 判断是否包含刷流标签
+            if brush_config.brush_tag in tags:
+                # 如果包含刷流标签又不在刷流任务中，则需要加入管理
+                if torrent_hash not in torrent_tasks:
+                    # 检查该种子是否在 unmanaged_tasks 中
+                    if torrent_hash in unmanaged_tasks:
+                        # 如果在 unmanaged_tasks 中，移除并转移到 torrent_tasks
+                        torrent_task = unmanaged_tasks.pop(torrent_hash)
+                        torrent_tasks[torrent_hash] = torrent_task
+                        logger.info(f"站点 {torrent_task.get('site_name')}，种子再次加入刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                        self.__send_add_message(torrent=torrent_task, title="【刷流任务种子再次加入】")
+                    else:
+                        # 否则，创建一个新的任务
+                        torrent_task = self.__convert_torrent_info_to_task(torrent)
+                        torrent_tasks[torrent_hash] = torrent_task
+                        logger.info(f"站点 {torrent_task.get('site_name')}，种子加入刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                        self.__send_add_message(torrent=torrent_task, title="【刷流任务种子加入】")
+            else:
+                # 不包含刷流标签但又在刷流任务中，则移除管理
+                if torrent_hash in torrent_tasks:
+                    # 如果种子不符合刷流条件但在 torrent_tasks 中，移除并加入 unmanaged_tasks
+                    torrent_task = torrent_tasks.pop(torrent_hash)
+                    unmanaged_tasks[torrent_hash] = torrent_task
+                    logger.info(f"站点 {torrent_task.get('site_name')}，种子移除刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                    self.__send_delete_message(site_name=torrent_task.get("site_name"),
+                                                torrent_title=torrent_task.get("title"),
+                                                torrent_desc=torrent_task.get("description"),
+                                                reason="刷流标签移除",
+                                                title="【刷流任务种子移除】")
+
+        self.save_data("torrents", torrent_tasks)
+        self.save_data("unmanaged", unmanaged_tasks)
   
     def __evaluate_conditions_and_delete(self, site_name: str, torrent_info: str) -> Tuple[bool, str]:
         """
@@ -1921,7 +1973,10 @@ class BrushFlowLowFreq(_PluginBase):
         
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash, {})
+            torrent_task = torrent_tasks.get(torrent_hash, None)
+            # 如果找不到种子任务，说明不在管理的种子范围内，直接跳过
+            if not torrent_task:
+                continue
             site_name = torrent_task.get("site_name", "")
             torrent_title = torrent_task.get("title", "")
             torrent_desc = torrent_task.get("description", "")
@@ -1968,9 +2023,49 @@ class BrushFlowLowFreq(_PluginBase):
             logger.info(f"站点：{site_name}，下载器中找不到种子，删除种子：{torrent_title}|{torrent_desc}")
         return not_deleted_hashes
 
+    def __convert_torrent_info_to_task(self, torrent: Any) -> dict:
+        """
+        根据torrent_info转换成torrent_task
+        """
+
+        torrent_info = self.__get_torrent_info(torrent=torrent)
+        
+        trackers = [tracker.get("url") for tracker in (torrent.trackers or []) if
+                         tracker.get("tier", -1) >= 0 and tracker.get("url")]
+        trackers.append(torrent_info.get("tracker"))
+        
+        site_id, site_name = self.__get_site_by_tracker(trackers=trackers)
+        
+        torrent_task = {
+            "site": site_id,
+            "site_name": site_name,
+            "title": torrent_info.get("title", ""),
+            "size": torrent_info.get("total_size", 0),  # 假设total_size对应于size
+            "pubdate": None,
+            "description": None,
+            "imdbid": None,
+            "page_url": None,
+            "date_elapsed": None,
+            "freedate": None,
+            "uploadvolumefactor": None,
+            "downloadvolumefactor": None,
+            "hit_and_run": None,
+            "volume_factor": None,
+            "freedate_diff": None,  # 假设无法从torrent_info直接获取
+            "ratio": torrent_info.get("ratio", 0),
+            "downloaded": torrent_info.get("downloaded", 0),
+            "uploaded": torrent_info.get("uploaded", 0),
+            "deleted": False,
+            "time": time.time()
+        }
+        return torrent_task
+
     #endregion
     
     def __update_and_save_statistic_info(self, torrent_tasks):
+        """
+        更新并保存统计信息
+        """
         total_count, total_uploaded, total_downloaded, total_deleted = 0, 0, 0, 0
         active_uploaded, active_downloaded, active_count, total_unarchived = 0, 0, 0, 0
 
@@ -2015,7 +2110,6 @@ class BrushFlowLowFreq(_PluginBase):
 
         self.save_data("statistic", statistic_info)
         self.save_data("torrents", torrent_tasks)
-
 
     def __get_brush_config(self, sitename: str = None) -> BrushConfig:
         """
@@ -2194,7 +2288,7 @@ class BrushFlowLowFreq(_PluginBase):
                 state = self.qb.add_torrent(content=torrent_content,
                                             download_dir=download_dir,
                                             cookie=torrent.site_cookie,
-                                            tag=["已整理", "刷流", tag],
+                                            tag=["已整理", brush_config.brush_tag, tag],
                                             upload_limit=up_speed,
                                             download_limit=down_speed)
             if not state:
@@ -2223,7 +2317,7 @@ class BrushFlowLowFreq(_PluginBase):
                 torrent = self.tr.add_torrent(content=torrent.enclosure,
                                           download_dir=download_dir,
                                           cookie=torrent.site_cookie,
-                                          labels=["已整理", "刷流"])
+                                          labels=["已整理", brush_config.brush_tag])
                 if not torrent:
                     return None
                 else:
@@ -2377,6 +2471,8 @@ class BrushFlowLowFreq(_PluginBase):
             add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(torrent.get("added_on") or 0))
             # 种子标签
             tags = torrent.get("tags")
+            # tracker
+            tracker = torrent.get("tracker")
         # TR
         else:
             # ID
@@ -2419,7 +2515,9 @@ class BrushFlowLowFreq(_PluginBase):
                                      time.localtime(torrent.date_added.timestamp() if torrent.date_added else 0))
             # 种子标签
             tags = torrent.get("tags")
-
+            # tracker
+            tracker = torrent.get("tracker")
+            
         return {
             "hash": torrent_id,
             "title": torrent_title,
@@ -2432,7 +2530,8 @@ class BrushFlowLowFreq(_PluginBase):
             "dltime": dltime,
             "total_size": total_size,
             "add_time": add_time,
-            "tags": tags
+            "tags": tags,
+            "tracker": tracker
         }
 
     def __log_and_notify_error(self, message):
@@ -2442,7 +2541,7 @@ class BrushFlowLowFreq(_PluginBase):
         logger.error(message)
         self.systemmessage.put(message)
 
-    def __send_delete_message(self, site_name: str, torrent_title: str, torrent_desc: str, reason: str):
+    def __send_delete_message(self, site_name: str, torrent_title: str, torrent_desc: str, reason: str, title: str = "【刷流任务种子删除】"):
         """
         发送删除种子的消息
         """
@@ -2459,46 +2558,51 @@ class BrushFlowLowFreq(_PluginBase):
         if reason:
             msg_text = f"{msg_text}\n原因：{reason}"
             
-        self.chain.post_message(Notification(
-            mtype=NotificationType.SiteMessage,
-            title=f"【刷流任务删种】",
-            text=msg_text
-        ))
+        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title=title, text=msg_text))
+            
+    def __build_add_message_text(self, torrent):
+        """
+        构建消息文本，兼容TorrentInfo对象和torrent_task字典
+        """
+        # 定义一个辅助函数来统一获取数据的方式
+        def get_data(key, default=None):
+            if isinstance(torrent, dict):
+                return torrent.get(key, default)
+            else:
+                return getattr(torrent, key, default)
 
-    def __send_add_message(self, torrent: TorrentInfo):
+        # 构造消息文本，确保使用中文标签
+        msg_parts = []
+        label_mapping = {
+            "site_name": "站点",
+            "title": "标题",
+            "description": "描述",
+            "size": "大小",
+            "pubdate": "发布时间",
+            "seeders": "做种数",
+            "volume_factor": "促销",
+            "hit_and_run": "Hit&Run"
+        }
+        for key in label_mapping:
+            value = get_data(key)
+            if key == "size" and value and str(value).replace(".", "", 1).isdigit():
+                value = StringUtils.str_filesize(value)
+            if value:
+                msg_parts.append(f"{label_mapping[key]}：{'是' if key == 'hit_and_run' and value else value}")
+
+        return "\n".join(msg_parts)
+    
+    def __send_add_message(self, torrent, title: str = "【刷流任务种子下载】"):
         """
         发送添加下载的消息
         """
         brush_config = self.__get_brush_config()
         if not brush_config.notify:
             return
-        msg_text = ""
-        if torrent.site_name:
-            msg_text = f"站点：{torrent.site_name}"
-        if torrent.title:
-            msg_text = f"{msg_text}\n标题：{torrent.title}"
-        if torrent.description:
-            msg_text = f"{msg_text}\n描述：{torrent.description}"
-        if torrent.size:
-            if str(torrent.size).replace(".", "").isdigit():
-                size = StringUtils.str_filesize(torrent.size)
-            else:
-                size = torrent.size
-            msg_text = f"{msg_text}\n大小：{size}"
-        if torrent.pubdate:
-            msg_text = f"{msg_text}\n发布时间：{torrent.pubdate}"
-        if torrent.seeders:
-            msg_text = f"{msg_text}\n做种数：{torrent.seeders}"
-        if torrent.volume_factor:
-            msg_text = f"{msg_text}\n促销：{torrent.volume_factor}"
-        if torrent.hit_and_run:
-            msg_text = f"{msg_text}\nHit&Run：是"
 
-        self.chain.post_message(Notification(
-            mtype=NotificationType.SiteMessage,
-            title="【刷流任务种子下载】",
-            text=msg_text
-        ))
+        # 使用辅助方法构建消息文本
+        msg_text = self.__build_add_message_text(torrent)
+        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title=title, text=msg_text))
 
     def __get_torrents_size(self) -> int:
         """
@@ -2713,6 +2817,7 @@ class BrushFlowLowFreq(_PluginBase):
         
         self.save_data("torrents", torrent_tasks)
         self.save_data("archived", {})
+        self.save_data("unmanaged", {})
         # 需要更新一下统计数据
         self.__update_and_save_statistic_info(torrent_tasks=torrent_tasks)
               
@@ -2787,3 +2892,34 @@ class BrushFlowLowFreq(_PluginBase):
         else:
             # 情况2: 时间段跨越午夜
             return now >= start_time or now <= end_time
+
+    def __get_site_by_tracker(self, trackers: list[str]) -> Tuple[int, str]:
+        """
+        根据tracker获取站点信息
+        """
+        if not trackers:
+            return (0, "未知")
+        
+        # 特定tracker到域名的映射
+        tracker_mappings = {
+            "chdbits.xyz": "ptchdbits.co",
+            "agsvpt.trackers.work": "agsvpt.com",
+            "tracker.cinefiles.info": "audiences.me",
+        }
+
+        for tracker in trackers:
+            # 检查tracker是否包含特定的关键字，并进行相应的映射
+            for key, mapped_domain in tracker_mappings.items():
+                if key in tracker:
+                    domain = mapped_domain
+                    break
+            else:
+                # 使用StringUtils工具类获取tracker的域名
+                domain = StringUtils.get_url_domain(tracker)
+
+            site_info = self.siteshelper.get_indexer(domain)
+            if site_info:
+                return (site_info.get("id"), site_info.get("name"))
+
+        # 当找不到对应的站点信息时，返回一个默认值
+        return (0, domain)
