@@ -53,6 +53,7 @@ class BrushConfig:
         self.download_time = self.__parse_number(config.get("download_time"))
         self.seed_avgspeed = self.__parse_number(config.get("seed_avgspeed"))
         self.seed_inactivetime = self.__parse_number(config.get("seed_inactivetime"))
+        self.delete_size_range = config.get("delete_size_range")
         self.up_speed = self.__parse_number(config.get("up_speed"))
         self.dl_speed = self.__parse_number(config.get("dl_speed"))
         self.save_path = config.get("save_path")
@@ -62,6 +63,7 @@ class BrushConfig:
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
         self.proxy_download = config.get("proxy_download", False)
+        self.proxy_delete = config.get("proxy_delete", False)
         self.active_time_range = config.get("active_time_range")
         self.enable_site_config = config.get("enable_site_config", False)
         self.brush_tag = "刷流"
@@ -92,6 +94,7 @@ class BrushConfig:
                 "seed_inactivetime",
                 "save_path",
                 "proxy_download",
+                "proxy_delete"
                 # 当新增支持字段时，仅在此处添加字段名
             }
             try:
@@ -426,8 +429,7 @@ class BrushFlowLowFreq(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    "cols": 12,
-                                    "md": 8
+                                    "cols": 12
                                 },
                                 'content': [
                                     {
@@ -438,23 +440,6 @@ class BrushFlowLowFreq(_PluginBase):
                                             'model': 'brushsites',
                                             'label': '刷流站点',
                                             'items': site_options
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    "cols": 12,
-                                    "md": 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'active_time_range',
-                                            'label': '开启时间段',
-                                            'placeholder': '如：00:00-08:00'
                                         }
                                     }
                                 ]
@@ -496,7 +481,7 @@ class BrushFlowLowFreq(_PluginBase):
                                         'props': {
                                             'model': 'disksize',
                                             'label': '保种体积（GB）',
-                                            'placeholder': '达到后停止新增任务'
+                                            'placeholder': '如：500，达到后停止新增任务'
                                         }
                                     }
                                 ]
@@ -710,6 +695,23 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
+                                            'model': 'delete_size_range',
+                                            'label': '删种阈值（GB）',
+                                            'placeholder': '如：500 或 500-1000，达到后删除任务'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
                                             'model': 'seed_ratio',
                                             'label': '分享率',
                                             'placeholder': '达到后删除任务'
@@ -784,12 +786,7 @@ class BrushFlowLowFreq(_PluginBase):
                                         }
                                     }
                                 ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
+                            },
                             {
                                 'component': 'VCol',
                                 'props': {
@@ -840,7 +837,30 @@ class BrushFlowLowFreq(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'active_time_range',
+                                            'label': '开启时间段',
+                                            'placeholder': '如：00:00-08:00'
+                                        }
+                                    }
+                                ]
                             }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                         
                         ]
                     },
                     {
@@ -941,8 +961,8 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'proxy_download',
-                                            'label': '代理下载种子',
+                                            'model': 'proxy_delete',
+                                            'label': '托管删除种子（实验性功能）',
                                         }
                                     }
                                 ]
@@ -981,6 +1001,22 @@ class BrushFlowLowFreq(_PluginBase):
                                         "props": {
                                             "model": "dialog_closed",
                                             "label": "设置站点"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'proxy_download',
+                                            'label': '代理下载种子',
                                         }
                                     }
                                 ]
@@ -1111,6 +1147,7 @@ class BrushFlowLowFreq(_PluginBase):
             "except_subscribe": True,
             "brush_sequential": False,
             "proxy_download": False,
+            "proxy_delete": False,
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False
@@ -1188,6 +1225,10 @@ class BrushFlowLowFreq(_PluginBase):
                     {
                         'component': 'td',
                         'text': round(data.get('ratio') or 0, 2)
+                    },
+                    {
+                        'component': 'td',
+                        'text': "是" if data.get("hit_and_run") else "否"
                     },
                     {
                         'component': 'td',
@@ -1551,6 +1592,13 @@ class BrushFlowLowFreq(_PluginBase):
                                                 'props': {
                                                     'class': 'text-start ps-4'
                                                 },
+                                                'text': 'HR'
+                                            },
+                                            {
+                                                'component': 'th',
+                                                'props': {
+                                                    'class': 'text-start ps-4'
+                                                },
                                                 'text': '状态'
                                             }
                                         ]
@@ -1727,7 +1775,7 @@ class BrushFlowLowFreq(_PluginBase):
             # 统计数据
             torrents_size += torrent.size
             statistic_info["count"] += 1
-            logger.info(f"站点 {siteinfo.name}， 新增刷流种子下载：{torrent.title}|{torrent.description}")
+            logger.info(f"站点 {siteinfo.name}，新增刷流种子下载：{torrent.title}|{torrent.description}")
             self.__send_add_message(torrent)
             
         return True
@@ -1737,7 +1785,7 @@ class BrushFlowLowFreq(_PluginBase):
             ("maxdlcount", lambda config: self.__get_downloading_count() >= int(config),
              lambda config: f"当前同时下载任务数已达到最大值 {config}，暂时停止新增任务"),
             ("disksize", lambda config: torrents_size > float(config) * 1024 ** 3,
-             lambda config: f"当前做种体积 {self.__bytes_to_gb(torrents_size):.2f} GB，已超过保种体积 {config} GB，暂时停止新增任务"),
+             lambda config: f"当前做种体积 {self.__bytes_to_gb(torrents_size):.1f} GB，已超过保种体积 {config} GB，暂时停止新增任务"),
         ]
         
         if include_network_conditions:
@@ -1874,22 +1922,32 @@ class BrushFlowLowFreq(_PluginBase):
             # 获取到当前所有做种数据中需要被检查的种子数据
             check_torrents = [seeding_torrents_dict[th] for th in torrent_check_hashes if th in seeding_torrents_dict]
 
-            # 先通过获取的全量种子，判断是否有种子需要被删除
-            not_deleted_hashes = self.__handle_not_deleted_hashes(torrent_tasks, torrent_check_hashes, check_torrents) or []
+            # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
+            undeleted_hashes = self.__get_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes, check_torrents) or []
             
             # 排除MoviePilot种子
             if check_torrents and brush_config.except_tags:
                 check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents, exclude_tag=settings.TORRENT_TAG)
 
-            # 这里需要过滤种子后，再进行统计删除状态
-            remove_hashes = self.__delete_torrent_and_get_removes(torrents=check_torrents, torrent_tasks=torrent_tasks) or []
-                             
-            all_deleted_hashes = remove_hashes + not_deleted_hashes
-
-            if all_deleted_hashes:
-                for hash in all_deleted_hashes:
-                    torrent_tasks[hash]["deleted"] = True
+            need_delete_hashes = []
+            need_delete_hashes.extend(undeleted_hashes)
             
+            # 如果配置了删种阈值，则根据托管删种进行分组处理
+            if brush_config.proxy_delete and brush_config.delete_size_range:
+                logger.info("已开启托管删种，按系统默认托管删种条件开始检查任务")
+                proxy_delete_hashs = self.__delete_torrent_for_proxy(torrents=check_torrents, torrent_tasks=torrent_tasks) or []
+                need_delete_hashes.extend(proxy_delete_hashs)
+            # 否则均认为是没有开启托管删种      
+            else:
+                logger.info("没有开启托管删种，按用户设置删种条件开始检查任务")
+                not_proxy_delete_hashs = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents, torrent_tasks=torrent_tasks) or []
+                need_delete_hashes.extend(not_proxy_delete_hashs)
+                
+            if need_delete_hashes:
+                if downloader.delete_torrents(ids=need_delete_hashes, delete_file=True):
+                    for torrent_hash in need_delete_hashes:
+                        torrent_tasks[torrent_hash]["deleted"] = True
+                
             self.__update_and_save_statistic_info(torrent_tasks)
             
             self.save_data("torrents", torrent_tasks)
@@ -1945,11 +2003,37 @@ class BrushFlowLowFreq(_PluginBase):
         self.save_data("torrents", torrent_tasks)
         self.save_data("unmanaged", unmanaged_tasks)
   
-    def __evaluate_conditions_and_delete(self, site_name: str, torrent_info: str) -> Tuple[bool, str]:
+    def __group_torrents_by_proxy_delete(self, torrents: List[Any], torrent_tasks: Dict[str, dict]):
+        """
+        根据是否启用托管删种进行分组
+        """
+        proxy_delete_torrents = []
+        not_proxy_delete_torrents = []
+
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            torrent_task = torrent_tasks.get(torrent_hash, None)
+            
+            # 如果找不到种子任务，说明不在管理的种子范围内，直接跳过
+            if not torrent_task:
+                continue
+            
+            site_name = torrent_task.get("site_name", "")
+            torrent_title = torrent_task.get("title", "")
+            torrent_desc = torrent_task.get("description", "")
+            
+            brush_config = self.__get_brush_config(site_name)
+            if brush_config.proxy_delete:
+                proxy_delete_torrents.append(torrent)
+            else:
+                not_proxy_delete_torrents.append(torrent)
+            
+        return proxy_delete_torrents, not_proxy_delete_torrents
+  
+    def __evaluate_conditions_for_delete(self, site_name: str, torrent_info: str) -> Tuple[bool, str]:
         """
         评估删除条件并返回是否应删除种子及其原因
-        """
-        
+        """      
         brush_config = self.__get_brush_config(sitename=site_name)
         
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
@@ -1969,15 +2053,12 @@ class BrushFlowLowFreq(_PluginBase):
 
         return True, reason
             
-    def __delete_torrent_and_get_removes(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
+    def __delete_torrent_for_evaluate_conditions(self, torrents: List[Any], torrent_tasks: Dict[str, dict], proxy_delete: bool = False) -> List:
         """
         根据条件删除种子并获取已删除列表
         """     
-        remove_hashes = []
-        
-        brush_config = self.__get_brush_config()
-        downloader = self.__get_downloader(brush_config.downloader)
-        
+        delete_hashs = []
+                
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
             torrent_task = torrent_tasks.get(torrent_hash, None)
@@ -1991,35 +2072,123 @@ class BrushFlowLowFreq(_PluginBase):
             torrent_info = self.__get_torrent_info(torrent)
             
             # 更新上传量、下载量
-            torrent_tasks.setdefault(torrent_hash, {}).update({
+            torrent_task.update({
                 "downloaded": torrent_info.get("downloaded"),
                 "uploaded": torrent_info.get("uploaded"),
                 "ratio": torrent_info.get("ratio"),
             })
 
-            should_delete, reason = self.__evaluate_conditions_and_delete(site_name=site_name, torrent_info=torrent_info)
+            # 删除种子的具体实现可能会根据实际情况略有不同
+            should_delete, reason = self.__evaluate_conditions_for_delete(site_name=site_name, torrent_info=torrent_info)
             if should_delete:
-                # 删除种子的具体实现可能会根据实际情况略有不同
-                downloader.delete_torrents(ids=torrent_hash, delete_file=True)
-                remove_hashes.append(torrent_hash)
+                delete_hashs.append(torrent_hash)
+                reason = "（托管）" + reason if proxy_delete else reason
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc, reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
-        return remove_hashes
+        return delete_hashs
     
-    def __handle_not_deleted_hashes(self, torrent_tasks, torrent_check_hashes, torrents) -> List:
+    def __delete_torrent_for_proxy(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
+        """
+        支持托管删除种子，当设置了托管删种（全局）和删除阈值时，当保种体积达到删除阈值时，优先按设置规则进行删除，若还没有达到阈值，则排除HR种子后按加入时间倒序进行删除
+        删除阈值：100，当保种体积 > 100G 时，则开始删除种子，直至降低至 100G
+        删除阈值：50-100，当保种体积 > 100G 时，则开始删除种子，直至降至为 50G
+        """
+        brush_config = self.__get_brush_config()
+        
+        # 如果没有启用托管删除或没有设置删除阈值，则不执行删除操作
+        if not (brush_config.proxy_delete and brush_config.delete_size_range):
+            return []
+        
+        # 解析删除阈值范围
+        sizes = [float(size) * 1024**3 for size in brush_config.delete_size_range.split("-")]
+        min_size = sizes[0]  # 至少需要达到的保种体积
+        max_size = sizes[1] if len(sizes) > 1 else sizes[0]  # 触发删除操作的保种体积上限
+        
+        torrent_info_map = {self.__get_hash(torrent): self.__get_torrent_info(torrent=torrent) for torrent in torrents}
+        
+        # 计算当前总保种体积
+        total_torrent_size = sum(info.get("total_size", 0) for info in torrent_info_map.values())
+
+        # 当总体积未超过最大阈值时，不需要执行删除操作
+        if total_torrent_size < max_size:
+            logger.info(f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，最大阈值 {self.__bytes_to_gb(max_size):.1f} GB，最小阈值 {self.__bytes_to_gb(min_size):.1f} GB，未触发托管删除")
+            return []
+        else:
+            logger.info(f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，最大阈值 {self.__bytes_to_gb(max_size):.1f} GB，最小阈值 {self.__bytes_to_gb(min_size):.1f} GB，触发托管删除")
+        
+        need_delete_hashes = []
+        
+        # 即使开了托管删除，但是也有可能部分站点单独设置了关闭，这里根据种子托管进行分组，先处理不需要托管的种子，按设置的规则进行删除            
+        proxy_delete_torrents, not_proxy_delete_torrents = self.__group_torrents_by_proxy_delete(torrents=torrents, torrent_tasks=torrent_tasks)
+        logger.info(f"托管种子数 {len(proxy_delete_torrents)}，未托管种子数 {len(not_proxy_delete_torrents)}")
+        if not_proxy_delete_torrents:
+            not_proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=not_proxy_delete_torrents, torrent_tasks=torrent_tasks) or []
+            need_delete_hashes.extend(not_proxy_delete_hashes)
+            total_torrent_size -= sum(torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in not_proxy_delete_torrents if self.__get_hash(torrent) in not_proxy_delete_hashes)
+        
+        # 如果删除非托管种子后仍未达到最小体积要求，则处理托管种子
+        if total_torrent_size > min_size and proxy_delete_torrents:
+                proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=proxy_delete_torrents, torrent_tasks=torrent_tasks, proxy_delete=True) or []
+                need_delete_hashes.extend(proxy_delete_hashes)
+                total_torrent_size -= sum(torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in proxy_delete_torrents if self.__get_hash(torrent) in proxy_delete_hashes)
+
+        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步删除HR种子后按加入时间倒序
+        if total_torrent_size > min_size:
+            # 重新计算当前的种子列表，排除已删除的种子
+            remaining_hashes = {self.__get_hash(torrent) for torrent in proxy_delete_torrents} - set(need_delete_hashes)
+            remaining_torrents = [(hash, torrent_info_map[hash]) for hash in remaining_hashes]
+            
+            # 准备一个列表，用于存放满足条件的种子，即非HR种子且有明确加入时间
+            filtered_torrents = [(hash, info['add_on']) for hash, info in remaining_torrents if not torrent_tasks[hash].get("hit_and_run", False)]
+            sorted_torrents = sorted(filtered_torrents, key=lambda x: x[1])
+
+            # 进行额外的删除操作，直到满足最小阈值或没有更多种子可删除
+            for torrent_hash, _ in sorted_torrents:
+                if total_torrent_size <= min_size:
+                    break
+                torrent_task = torrent_tasks.get(torrent_hash, None)
+                torrent_info = torrent_info_map.get(torrent_hash, None)
+                if not torrent_task or not torrent_info:
+                    continue
+                    
+                # 更新上传量、下载量
+                torrent_task.update({
+                    "downloaded": torrent_info.get("downloaded"),
+                    "uploaded": torrent_info.get("uploaded"),
+                    "ratio": torrent_info.get("ratio"),
+                })
+                
+                need_delete_hashes.append(torrent_hash)
+                total_torrent_size -= torrent_info_map[torrent_hash].get("total_size", 0)
+                
+                site_name = torrent_task.get("site_name", "")
+                torrent_title = torrent_task.get("title", "")
+                torrent_desc = torrent_task.get("description", "")
+                reason = "（托管）触发阈值，系统自动删除"
+                self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc, reason=reason)
+                logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
+            
+        msg = f"触发托管删除，已完成{len(need_delete_hashes)}个种子删除，当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，最大阈值 {self.__bytes_to_gb(max_size):.1f} GB，最小阈值 {self.__bytes_to_gb(min_size):.1f} GB"
+        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title="【托管删种】", text=msg))
+        logger.info(msg)
+                            
+        # 返回所有需要删除的种子的哈希列表
+        return need_delete_hashes
+    
+    def __get_undeleted_torrents_missing_in_downloader(self, torrent_tasks, torrent_check_hashes, torrents) -> List:
         """
         处理已经被删除，但是任务记录中还没有被标记删除的种子
         """
         torrent_all_hashes = self.__get_all_hashes(torrents)
         missing_hashes = [hash_value for hash_value in torrent_check_hashes if hash_value not in torrent_all_hashes]
-        not_deleted_hashes = [hash_value for hash_value in missing_hashes if not torrent_tasks[hash_value].get("deleted")]
+        undeleted_hashes = [hash_value for hash_value in missing_hashes if not torrent_tasks[hash_value].get("deleted")]
 
-        if not not_deleted_hashes:
+        if not undeleted_hashes:
             return []
                 
         # 处理每个符合条件的任务
-        for hash_value in not_deleted_hashes:
+        for hash_value in undeleted_hashes:
             # 获取对应的任务信息
             torrent_info = torrent_tasks[hash_value]
             # 获取site_name和torrent_title
@@ -2028,13 +2197,12 @@ class BrushFlowLowFreq(_PluginBase):
             torrent_desc = torrent_info.get("description", "")                        
             self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc, reason="下载器中找不到种子")
             logger.info(f"站点：{site_name}，下载器中找不到种子，删除种子：{torrent_title}|{torrent_desc}")
-        return not_deleted_hashes
+        return undeleted_hashes
 
     def __convert_torrent_info_to_task(self, torrent: Any) -> dict:
         """
         根据torrent_info转换成torrent_task
         """
-
         torrent_info = self.__get_torrent_info(torrent=torrent)
         
         trackers = [tracker.get("url") for tracker in (torrent.trackers or []) if
@@ -2063,7 +2231,7 @@ class BrushFlowLowFreq(_PluginBase):
             "downloaded": torrent_info.get("downloaded", 0),
             "uploaded": torrent_info.get("uploaded", 0),
             "deleted": False,
-            "time": time.time()
+            "time": torrent_info.get("add_on", time.time())
         }
         return torrent_task
 
@@ -2153,14 +2321,15 @@ class BrushFlowLowFreq(_PluginBase):
         config_range_number_attr_to_desc = {
             "pubtime": "发布时间",
             "size": "种子大小",
-            "seeder": "做种人数"
+            "seeder": "做种人数",
+            "delete_size_range": "删种阈值"
         }
                 
         for attr, desc in config_number_attr_to_desc.items():
             value = config.get(attr)
             if value and not self.__is_number(value):
                 self.__log_and_notify_error(f"站点刷流任务出错，{desc}设置错误：{value}")
-                config[attr] = 0
+                config[attr] = None
                 found_error = True  # 更新错误标志
 
         for attr, desc in config_range_number_attr_to_desc.items():
@@ -2168,7 +2337,7 @@ class BrushFlowLowFreq(_PluginBase):
             # 检查 value 是否存在且是否符合数字或数字-数字的模式
             if value and not self.__is_number_or_range(str(value)):
                 self.__log_and_notify_error(f"站点刷流任务出错，{desc}设置错误：{value}")
-                config[attr] = 0
+                config[attr] = None
                 found_error = True  # 更新错误标志
         
         active_time_range = config.get("active_time_range")    
@@ -2214,6 +2383,7 @@ class BrushFlowLowFreq(_PluginBase):
             "download_time": brush_config.download_time,
             "seed_avgspeed": brush_config.seed_avgspeed,
             "seed_inactivetime": brush_config.seed_inactivetime,
+            "delete_size_range": brush_config.delete_size_range,
             "up_speed": brush_config.up_speed,
             "dl_speed": brush_config.dl_speed,
             "save_path": brush_config.save_path,
@@ -2223,6 +2393,7 @@ class BrushFlowLowFreq(_PluginBase):
             "except_subscribe": brush_config.except_subscribe,
             "brush_sequential": brush_config.brush_sequential,
             "proxy_download": brush_config.proxy_download,
+            "proxy_delete": brush_config.proxy_delete,
             "active_time_range": brush_config.active_time_range,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config
@@ -2475,7 +2646,8 @@ class BrushFlowLowFreq(_PluginBase):
             # 种子大小
             total_size = torrent.get("total_size")
             # 添加时间
-            add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(torrent.get("added_on") or 0))
+            add_on = time.localtime(torrent.get("added_on") or 0)
+            add_time = time.strftime('%Y-%m-%d %H:%M:%S', add_on)
             # 种子标签
             tags = torrent.get("tags")
             # tracker
@@ -2518,8 +2690,8 @@ class BrushFlowLowFreq(_PluginBase):
             # 种子大小
             total_size = torrent.total_size
             # 添加时间
-            add_time = time.strftime('%Y-%m-%d %H:%M:%S',
-                                     time.localtime(torrent.date_added.timestamp() if torrent.date_added else 0))
+            add_on = time.localtime(torrent.date_added.timestamp() if torrent.date_added else 0)
+            add_time = time.strftime('%Y-%m-%d %H:%M:%S', add_on)
             # 种子标签
             tags = torrent.get("tags")
             # tracker
@@ -2537,6 +2709,7 @@ class BrushFlowLowFreq(_PluginBase):
             "dltime": dltime,
             "total_size": total_size,
             "add_time": add_time,
+            "add_on": add_on,
             "tags": tags,
             "tracker": tracker
         }
@@ -2930,3 +3103,5 @@ class BrushFlowLowFreq(_PluginBase):
 
         # 当找不到对应的站点信息时，返回一个默认值
         return (0, domain)
+    
+    

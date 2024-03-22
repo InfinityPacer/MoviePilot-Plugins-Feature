@@ -28,8 +28,14 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
   - [x] 支持配置刷流服务开启时间段
   - [x] 清除统计数据调整为清理已删除和已归档的数据，保留活跃种子数据
   - [ ] 刷流辅种删除优化，如果其他站点在辅种且不满足删种条件，则跳过
+  - [x] 支持托管删除种子，当设置了托管删种（全局）和删除阈值时，当保种体积达到删除阈值时，优先按设置规则进行删除，若还没有达到阈值，则排除HR种子后按加入时间倒序进行删除
+    - 删除阈值：100，当保种体积 > 100G 时，则开始删除种子，直至降低至 100G
+    - 删除阈值：50-100，当保种体积 > 100G 时，则开始删除种子，直至降至为 50G
+
+  ![](images/2024-03-22-22-04-54.png)
+  ![](images/2024-03-22-22-13-45.png)
   
-  ##### 站点独立配置
+  #### 站点独立配置
 
   目前站点独立配置支持以下配置项，配置格式为json，通过sitename进行匹配，没有找到对应配置项时，则以全局配置项为准
 
@@ -54,6 +60,7 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
   - `seed_inactivetime`: 未活动时间
   - `save_path`: 保存目录
   - `proxy_download`: 代理下载种子
+  - `proxy_delete`: 托管删除种子（实验性功能）
   
   配置示例
 
@@ -74,7 +81,8 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
       "seed_avgspeed": "",
       "seed_inactivetime": "",
       "save_path": "/downloads/site1",
-      "proxy_download": false
+      "proxy_download": false,
+      "proxy_delete": false
   }, {
       "sitename": "站点2",
       "hr": "yes",
