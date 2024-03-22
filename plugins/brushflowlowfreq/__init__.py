@@ -1922,6 +1922,13 @@ class BrushFlowLowFreq(_PluginBase):
                         torrent_tasks[torrent_hash] = torrent_task
                         logger.info(f"站点 {torrent_task.get('site_name')}，种子加入刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
                         self.__send_add_message(torrent=torrent_task, title="【刷流任务种子加入】")
+                # 包含刷流标签又在刷流任务中，这里额外处理一个特殊逻辑，就是种子在刷流任务中可能被标记删除但实际上又还在下载器中，这里进行重置
+                else:
+                    torrent_task = torrent_tasks[torrent_hash]
+                    if torrent_task.get("deleted"):
+                        torrent_task["deleted"] = False
+                        logger.info(f"站点 {torrent_task.get('site_name')}，种子再次加入刷流任务：{torrent_task.get('title')}|{torrent_task.get('description')}")
+                        self.__send_add_message(torrent=torrent_task, title="【刷流任务种子再次加入】")
             else:
                 # 不包含刷流标签但又在刷流任务中，则移除管理
                 if torrent_hash in torrent_tasks:
