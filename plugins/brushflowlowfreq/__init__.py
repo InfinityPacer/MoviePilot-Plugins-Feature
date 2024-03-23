@@ -696,7 +696,7 @@ class BrushFlowLowFreq(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'delete_size_range',
-                                            'label': '删种阈值（GB）',
+                                            'label': '动态删种阈值（GB）',
                                             'placeholder': '如：500 或 500-1000，达到后删除任务'
                                         }
                                     }
@@ -962,7 +962,7 @@ class BrushFlowLowFreq(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'proxy_delete',
-                                            'label': '托管删除种子（实验性功能）',
+                                            'label': '动态删除种子（实验性功能）',
                                         }
                                     }
                                 ]
@@ -1932,14 +1932,14 @@ class BrushFlowLowFreq(_PluginBase):
             need_delete_hashes = []
             need_delete_hashes.extend(undeleted_hashes)
             
-            # 如果配置了删种阈值，则根据托管删种进行分组处理
+            # 如果配置了删种阈值，则根据动态删种进行分组处理
             if brush_config.proxy_delete and brush_config.delete_size_range:
-                logger.info("已开启托管删种，按系统默认托管删种条件开始检查任务")
+                logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
                 proxy_delete_hashs = self.__delete_torrent_for_proxy(torrents=check_torrents, torrent_tasks=torrent_tasks) or []
                 need_delete_hashes.extend(proxy_delete_hashs)
-            # 否则均认为是没有开启托管删种      
+            # 否则均认为是没有开启动态删种      
             else:
-                logger.info("没有开启托管删种，按用户设置删种条件开始检查任务")
+                logger.info("没有开启动态删种，按用户设置删种条件开始检查任务")
                 not_proxy_delete_hashs = self.__delete_torrent_for_evaluate_conditions(torrents=check_torrents, torrent_tasks=torrent_tasks) or []
                 need_delete_hashes.extend(not_proxy_delete_hashs)
                 
@@ -2005,7 +2005,7 @@ class BrushFlowLowFreq(_PluginBase):
   
     def __group_torrents_by_proxy_delete(self, torrents: List[Any], torrent_tasks: Dict[str, dict]):
         """
-        根据是否启用托管删种进行分组
+        根据是否启用动态删种进行分组
         """
         proxy_delete_torrents = []
         not_proxy_delete_torrents = []
@@ -2037,17 +2037,17 @@ class BrushFlowLowFreq(_PluginBase):
         brush_config = self.__get_brush_config(sitename=site_name)
         
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
-            reason = f"做种时间达到 {brush_config.seed_time} 小时"
+            reason = f"做种时间 {torrent_info.get('seeding_time') / 3600:.1f} 小时，大于 {brush_config.seed_time} 小时"
         elif brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
-            reason = f"分享率达到 {brush_config.seed_ratio}"
+            reason = f"分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
         elif brush_config.seed_size and torrent_info.get("uploaded") >= float(brush_config.seed_size) * 1024**3:
-            reason = f"上传量达到 {brush_config.seed_size} GB"
+            reason = f"上传量 {torrent_info.get('uploaded') / 1024**3:.1f} GB，大于 {brush_config.seed_size} GB"
         elif brush_config.download_time and torrent_info.get("downloaded") < torrent_info.get("total_size") and torrent_info.get("dltime") >= float(brush_config.download_time) * 3600:
-            reason = f"下载耗时达到 {brush_config.download_time} 小时"
+            reason = f"下载耗时 {torrent_info.get('dltime') / 3600:.1f} 小时，大于 {brush_config.download_time} 小时"
         elif brush_config.seed_avgspeed and torrent_info.get("avg_upspeed") <= float(brush_config.seed_avgspeed) * 1024 and torrent_info.get("seeding_time") >= 30 * 60:
-            reason = f"平均上传速度低于 {brush_config.seed_avgspeed} KB/s"
+            reason = f"平均上传速度 {torrent_info.get('avg_upspeed') / 1024:.1f} KB/s，低于 {brush_config.seed_avgspeed} KB/s"
         elif brush_config.seed_inactivetime and torrent_info.get("iatime") >= float(brush_config.seed_inactivetime) * 60:
-            reason = f"未活动时间达到 {brush_config.seed_inactivetime} 分钟"
+            reason = f"未活动时间 {torrent_info.get('iatime') / 60:.0f} 分钟，大于 {brush_config.seed_inactivetime} 分钟"
         else:
             return False, ""
 
@@ -2082,7 +2082,7 @@ class BrushFlowLowFreq(_PluginBase):
             should_delete, reason = self.__evaluate_conditions_for_delete(site_name=site_name, torrent_info=torrent_info)
             if should_delete:
                 delete_hashs.append(torrent_hash)
-                reason = "（托管）" + reason if proxy_delete else reason
+                reason = "触发动态删除，" + reason if proxy_delete else reason
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc, reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
@@ -2090,13 +2090,13 @@ class BrushFlowLowFreq(_PluginBase):
     
     def __delete_torrent_for_proxy(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
         """
-        支持托管删除种子，当设置了托管删种（全局）和删除阈值时，当保种体积达到删除阈值时，优先按设置规则进行删除，若还没有达到阈值，则排除HR种子后按加入时间倒序进行删除
+        支持动态删除种子，当设置了动态删种（全局）和删除阈值时，当保种体积达到删除阈值时，优先按设置规则进行删除，若还没有达到阈值，则排除HR种子后按加入时间倒序进行删除
         删除阈值：100，当保种体积 > 100G 时，则开始删除种子，直至降低至 100G
         删除阈值：50-100，当保种体积 > 100G 时，则开始删除种子，直至降至为 50G
         """
         brush_config = self.__get_brush_config()
         
-        # 如果没有启用托管删除或没有设置删除阈值，则不执行删除操作
+        # 如果没有启用动态删除或没有设置删除阈值，则不执行删除操作
         if not (brush_config.proxy_delete and brush_config.delete_size_range):
             return []
         
@@ -2112,14 +2112,14 @@ class BrushFlowLowFreq(_PluginBase):
 
         # 当总体积未超过最大阈值时，不需要执行删除操作
         if total_torrent_size < max_size:
-            logger.info(f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，最大阈值 {self.__bytes_to_gb(max_size):.1f} GB，最小阈值 {self.__bytes_to_gb(min_size):.1f} GB，未触发托管删除")
+            logger.info(f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，未触发动态删除")
             return []
         else:
-            logger.info(f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，最大阈值 {self.__bytes_to_gb(max_size):.1f} GB，最小阈值 {self.__bytes_to_gb(min_size):.1f} GB，触发托管删除")
+            logger.info(f"当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，上限 {self.__bytes_to_gb(max_size):.1f} GB，下限 {self.__bytes_to_gb(min_size):.1f} GB，触发动态删除")
         
         need_delete_hashes = []
         
-        # 即使开了托管删除，但是也有可能部分站点单独设置了关闭，这里根据种子托管进行分组，先处理不需要托管的种子，按设置的规则进行删除            
+        # 即使开了动态删除，但是也有可能部分站点单独设置了关闭，这里根据种子动态进行分组，先处理不需要动态的种子，按设置的规则进行删除            
         proxy_delete_torrents, not_proxy_delete_torrents = self.__group_torrents_by_proxy_delete(torrents=torrents, torrent_tasks=torrent_tasks)
         logger.info(f"托管种子数 {len(proxy_delete_torrents)}，未托管种子数 {len(not_proxy_delete_torrents)}")
         if not_proxy_delete_torrents:
@@ -2127,16 +2127,20 @@ class BrushFlowLowFreq(_PluginBase):
             need_delete_hashes.extend(not_proxy_delete_hashes)
             total_torrent_size -= sum(torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in not_proxy_delete_torrents if self.__get_hash(torrent) in not_proxy_delete_hashes)
         
-        # 如果删除非托管种子后仍未达到最小体积要求，则处理托管种子
+        # 如果删除非动态种子后仍未达到最小体积要求，则处理动态种子
         if total_torrent_size > min_size and proxy_delete_torrents:
                 proxy_delete_hashes = self.__delete_torrent_for_evaluate_conditions(torrents=proxy_delete_torrents, torrent_tasks=torrent_tasks, proxy_delete=True) or []
                 need_delete_hashes.extend(proxy_delete_hashes)
                 total_torrent_size -= sum(torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in proxy_delete_torrents if self.__get_hash(torrent) in proxy_delete_hashes)
 
-        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步删除HR种子后按加入时间倒序
+        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按加入时间倒序进行删除
         if total_torrent_size > min_size:
             # 重新计算当前的种子列表，排除已删除的种子
             remaining_hashes = {self.__get_hash(torrent) for torrent in proxy_delete_torrents} - set(need_delete_hashes)
+            # 这里根据排除后的种子列表，再次从下载器中找到已完成的任务
+            downloader = self.__get_downloader(brush_config.downloader)
+            completed_torrents = downloader.get_completed_torrents(ids=remaining_hashes)
+            remaining_hashes = {self.__get_hash(torrent) for torrent in completed_torrents}
             remaining_torrents = [(hash, torrent_info_map[hash]) for hash in remaining_hashes]
             
             # 准备一个列表，用于存放满足条件的种子，即非HR种子且有明确加入时间
@@ -2165,12 +2169,12 @@ class BrushFlowLowFreq(_PluginBase):
                 site_name = torrent_task.get("site_name", "")
                 torrent_title = torrent_task.get("title", "")
                 torrent_desc = torrent_task.get("description", "")
-                reason = "（托管）触发阈值，系统自动删除"
+                reason = "触发动态删除，系统自动删除"
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc, reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
             
-        msg = f"触发托管删除，已完成{len(need_delete_hashes)}个种子删除，当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，最大阈值 {self.__bytes_to_gb(max_size):.1f} GB，最小阈值 {self.__bytes_to_gb(min_size):.1f} GB"
-        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title="【托管删种】", text=msg))
+        msg = f"已完成 {len(need_delete_hashes)} 个种子删除，当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB"
+        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title="【刷流任务种子删除】", text=msg))
         logger.info(msg)
                             
         # 返回所有需要删除的种子的哈希列表
@@ -2322,7 +2326,7 @@ class BrushFlowLowFreq(_PluginBase):
             "pubtime": "发布时间",
             "size": "种子大小",
             "seeder": "做种人数",
-            "delete_size_range": "删种阈值"
+            "delete_size_range": "动态删种阈值"
         }
                 
         for attr, desc in config_number_attr_to_desc.items():
@@ -2646,8 +2650,8 @@ class BrushFlowLowFreq(_PluginBase):
             # 种子大小
             total_size = torrent.get("total_size")
             # 添加时间
-            add_on = time.localtime(torrent.get("added_on") or 0)
-            add_time = time.strftime('%Y-%m-%d %H:%M:%S', add_on)
+            add_on = (torrent.get("added_on") or 0)
+            add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(add_on))
             # 种子标签
             tags = torrent.get("tags")
             # tracker
@@ -2690,8 +2694,8 @@ class BrushFlowLowFreq(_PluginBase):
             # 种子大小
             total_size = torrent.total_size
             # 添加时间
-            add_on = time.localtime(torrent.date_added.timestamp() if torrent.date_added else 0)
-            add_time = time.strftime('%Y-%m-%d %H:%M:%S', add_on)
+            add_on = (torrent.date_added.timestamp() if torrent.date_added else 0)
+            add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(add_on))
             # 种子标签
             tags = torrent.get("tags")
             # tracker
@@ -2734,7 +2738,7 @@ class BrushFlowLowFreq(_PluginBase):
         if torrent_title:
             msg_text = f"{msg_text}\n标题：{torrent_title}"
         if torrent_desc:
-            msg_text = f"{msg_text}\n描述：{torrent_desc}"
+            msg_text = f"{msg_text}\n内容：{torrent_desc}"
         if reason:
             msg_text = f"{msg_text}\n原因：{reason}"
             
@@ -2756,7 +2760,7 @@ class BrushFlowLowFreq(_PluginBase):
         label_mapping = {
             "site_name": "站点",
             "title": "标题",
-            "description": "描述",
+            "description": "内容",
             "size": "大小",
             "pubdate": "发布时间",
             "seeders": "做种数",
