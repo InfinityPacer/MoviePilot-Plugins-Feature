@@ -178,7 +178,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "2.0"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -1921,6 +1921,9 @@ class BrushFlowLowFreq(_PluginBase):
 
             # 获取到当前所有做种数据中需要被检查的种子数据
             check_torrents = [seeding_torrents_dict[th] for th in torrent_check_hashes if th in seeding_torrents_dict]
+            
+            # 先更新刷流任务的最新状态，上下传，分享率
+            self.__update_torrent_tasks_state(torrents=check_torrents, torrent_tasks=torrent_tasks)
 
             # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
             undeleted_hashes = self.__get_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes, check_torrents) or []
@@ -1953,6 +1956,26 @@ class BrushFlowLowFreq(_PluginBase):
             self.save_data("torrents", torrent_tasks)
 
             logger.info("刷流下载任务检查完成")
+  
+    def __update_torrent_tasks_state(self, torrents: List[Any], torrent_tasks: Dict[str, dict]):
+        """
+        更新刷流任务的最新状态，上下传，分享率
+        """
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            torrent_task = torrent_tasks.get(torrent_hash, None)
+            # 如果找不到种子任务，说明不在管理的种子范围内，直接跳过
+            if not torrent_task:
+                continue
+
+            torrent_info = self.__get_torrent_info(torrent)
+            
+            # 更新上传量、下载量
+            torrent_task.update({
+                "downloaded": torrent_info.get("downloaded"),
+                "uploaded": torrent_info.get("uploaded"),
+                "ratio": torrent_info.get("ratio"),
+            })        
   
     def __update_seeding_tasks_based_on_tags(self, torrent_tasks: Dict[str, dict], unmanaged_tasks: Dict[str, dict], seeding_torrents_dict: Dict[str, Any]):
         brush_config = self.__get_brush_config()
@@ -2070,13 +2093,6 @@ class BrushFlowLowFreq(_PluginBase):
             torrent_desc = torrent_task.get("description", "")
             
             torrent_info = self.__get_torrent_info(torrent)
-            
-            # 更新上传量、下载量
-            torrent_task.update({
-                "downloaded": torrent_info.get("downloaded"),
-                "uploaded": torrent_info.get("uploaded"),
-                "ratio": torrent_info.get("ratio"),
-            })
 
             # 删除种子的具体实现可能会根据实际情况略有不同
             should_delete, reason = self.__evaluate_conditions_for_delete(site_name=site_name, torrent_info=torrent_info)
@@ -2155,16 +2171,9 @@ class BrushFlowLowFreq(_PluginBase):
                 torrent_info = torrent_info_map.get(torrent_hash, None)
                 if not torrent_task or not torrent_info:
                     continue
-                    
-                # 更新上传量、下载量
-                torrent_task.update({
-                    "downloaded": torrent_info.get("downloaded"),
-                    "uploaded": torrent_info.get("uploaded"),
-                    "ratio": torrent_info.get("ratio"),
-                })
                 
                 need_delete_hashes.append(torrent_hash)
-                total_torrent_size -= torrent_info_map[torrent_hash].get("total_size", 0)
+                total_torrent_size -= torrent_info.get("total_size", 0)
                 
                 site_name = torrent_task.get("site_name", "")
                 torrent_title = torrent_task.get("title", "")
