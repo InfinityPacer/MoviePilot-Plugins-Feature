@@ -60,7 +60,7 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
   - `seed_inactivetime`: 未活动时间
   - `save_path`: 保存目录
   - `proxy_download`: 代理下载种子
-  - `proxy_delete`: 托管删除种子（实验性功能）
+  - `proxy_delete`: 动态删除种子（实验性功能）
   
   配置示例
 
