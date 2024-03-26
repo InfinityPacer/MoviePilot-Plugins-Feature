@@ -237,6 +237,12 @@ class BrushFlowLowFreq(_PluginBase):
         self._brush_config = BrushConfig(config=config)
 
         brush_config = self._brush_config
+        
+        # 判断是否存在插件冲突，如果存在则停用
+        if not self.__check_and_resolve_plugin_conflict():
+            self._brush_config.enabled = False
+            self.__update_config()
+            return  
                         
         # 这里先过滤掉已删除的站点并保存，特别注意的是，这里保留了界面选择站点时的顺序，以便后续站点随机刷流或顺序刷流
         site_id_to_public_status = {site.get("id"): site.get("public") for site in self.siteshelper.get_indexers()}
@@ -257,6 +263,9 @@ class BrushFlowLowFreq(_PluginBase):
             self.__archive_tasks()
             brush_config.archive_task = False
             self.__update_config()
+
+        # 同步官方插件
+        self.__sync_official(config=config)
 
         # 停止现有任务
         self.stop_service()
@@ -334,6 +343,10 @@ class BrushFlowLowFreq(_PluginBase):
         
         brush_config = self.__get_brush_config()
         if not brush_config:
+            return services
+        
+        # 判断是否存在插件冲突，如果存在则停用
+        if not self.__check_and_resolve_plugin_conflict():
             return services
         
         if self._task_brush_enable:
@@ -1028,6 +1041,69 @@ class BrushFlowLowFreq(_PluginBase):
                     },
                     {
                         'component': 'VRow',
+                        "content": [
+                             {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'sync_official',
+                                            'label': '双向同步官方插件数据',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'warning',
+                                            'variant': 'tonal',
+                                            'text': '注意：本插件相关功能已逐步同步至官方插件，可尝试使用双向同步官方插件数据后停用本插件再启用官方插件使用，注意不要同时启用两个插件，否则可能导致种子异常甚至数据丢失！'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'success',
+                                            'variant': 'tonal'
+                                        },
+                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
                         'content': [
                             {
                                 'component': 'VCol',
@@ -1103,7 +1179,6 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'type': 'info',
                                                                     'variant': 'tonal'
-                                                                    # 'text': "注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考 <a href='https://www.baidu.com' target='_blank'>https://www.baidu.com</a>"
                                                                 },
                                                                 'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
                                                             }
@@ -1113,27 +1188,6 @@ class BrushFlowLowFreq(_PluginBase):
                                             }
                                         ]
                                     }
-                                    # {
-                                    #     "component": "VCardActions",
-                                    #     "content": [
-                                    #         {
-                                    #             "component": "div",
-                                    #             "props": {
-                                    #                 "class": "d-flex w-100 justify-end",
-                                    #                 "style": "margin-right: 5px"
-                                    #             },
-                                    #             "content": [
-                                    #                 {
-                                    #                     "component": "VSwitch",
-                                    #                     "props": {
-                                    #                         "model": "dialog_closed",
-                                    #                         "label": "关闭"
-                                    #                     }
-                                    #                 }
-                                    #             ]
-                                    #         }
-                                    #     ]
-                                    # }
                                 ]
                             }
                         ]
@@ -1639,6 +1693,9 @@ class BrushFlowLowFreq(_PluginBase):
         """
         定时刷流，添加下载任务
         """
+        if not self.__check_and_resolve_plugin_conflict():
+            return
+        
         brush_config = self.__get_brush_config()
         
         if not brush_config.brushsites or not brush_config.downloader:
@@ -1887,6 +1944,9 @@ class BrushFlowLowFreq(_PluginBase):
         """
         定时检查，删除下载任务
         """
+        if not self.__check_and_resolve_plugin_conflict():
+            return
+      
         brush_config = self.__get_brush_config()
 
         if not brush_config.downloader:
@@ -3195,4 +3255,55 @@ class BrushFlowLowFreq(_PluginBase):
         # 当找不到对应的站点信息时，返回一个默认值
         return (0, domain)
     
-    
+    def __sync_official(self, config: dict):
+        """
+        双向同步官方插件数据
+        """
+        if not config:
+            return
+
+        # 双向数据同步官方插件数据，以本地插件的数据为准
+        if config.get("sync_official"):
+            # 获取本地数据
+            from_torrents = self.get_data("torrents") or {}
+            from_archived = self.get_data("archived") or {}
+            from_unmanaged = self.get_data("unmanaged") or {}
+
+            # 获取官方插件数据
+            to_torrents = self.get_data("torrents", "BrushFlow") or {}
+            to_archived = self.get_data("archived", "BrushFlow") or {}
+            to_unmanaged = self.get_data("unmanaged", "BrushFlow") or {}
+
+            # 合并插件数据
+            merged_torrents = {**to_torrents, **from_torrents}
+            merged_archived = {**to_archived, **from_archived}
+            merged_unmanaged = {**to_unmanaged, **from_unmanaged}
+
+            # 双向保存插件数据
+            self.save_data("torrents", merged_torrents)
+            self.save_data("archived", merged_archived)
+            self.save_data("unmanaged", merged_unmanaged)
+            self.save_data("torrents", merged_torrents, "BrushFlow")
+            self.save_data("archived", merged_archived, "BrushFlow")
+            self.save_data("unmanaged", merged_unmanaged, "BrushFlow")
+            
+    def __check_and_resolve_plugin_conflict(self) -> bool:
+        """
+        判断是否存在插件冲突
+        """
+        brush_config = self.__get_brush_config()
+        if not brush_config:
+            return True
+        
+        official_config = self.get_config("BrushFlow")
+        if not official_config:
+            return True
+        
+        official_enabled = official_config.get("enabled")
+        if official_enabled and brush_config.enabled:
+            logger.warn("官方插件与当前插件只能同时启用一个，请重新配置")
+            return False
+        
+        return True
+        
+        
