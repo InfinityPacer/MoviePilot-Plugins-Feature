@@ -3,6 +3,7 @@ import threading
 import time
 import random
 import json
+import base64
 from datetime import datetime, timedelta
 from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union, Set
@@ -62,7 +63,7 @@ class BrushConfig:
         self.except_tags = config.get("except_tags", True)
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
-        self.proxy_download = config.get("proxy_download", False)
+        self.proxy_download = config.get("proxy_download", True)
         self.proxy_delete = config.get("proxy_delete", False)
         self.active_time_range = config.get("active_time_range")
         self.enable_site_config = config.get("enable_site_config", False)
@@ -309,7 +310,7 @@ class BrushFlowLowFreq(_PluginBase):
                 
     def get_state(self) -> bool:
         brush_config = self.__get_brush_config()
-        return True if brush_config.enabled else False
+        return True if brush_config and brush_config.enabled else False
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -332,6 +333,8 @@ class BrushFlowLowFreq(_PluginBase):
         services = []
         
         brush_config = self.__get_brush_config()
+        if not brush_config:
+            return services
         
         if self._task_brush_enable:
             logger.info(f"站点刷流Brush定时服务启动，时间间隔 {self._brush_interval} 分钟")
@@ -1146,7 +1149,7 @@ class BrushFlowLowFreq(_PluginBase):
             "except_tags": True,
             "except_subscribe": True,
             "brush_sequential": False,
-            "proxy_download": False,
+            "proxy_download": True,
             "proxy_delete": False,
             "freeleech": "free",
             "hr": "yes",
@@ -1675,10 +1678,10 @@ class BrushFlowLowFreq(_PluginBase):
             for site in site_infos:
                 # 如果站点刷流没有正确响应，说明没有通过前置条件，其他站点也不需要继续刷流了
                 if not self.__brush_site_torrents(siteid=site.id, torrent_tasks=torrent_tasks, statistic_info=statistic_info):
-                    logger.info(f"站点 {site.name} 刷流中途结束，停止后续站点刷流")
+                    logger.info(f"站点 {site.name} 刷流中途结束，停止后续刷流")
                     break
                 else:
-                    logger.info(f"站点 {site.name} 刷流完成，继续处理后续站点")
+                    logger.info(f"站点 {site.name} 刷流完成")
                 
             # 保存数据
             self.save_data("torrents", torrent_tasks)
@@ -2446,10 +2449,69 @@ class BrushFlowLowFreq(_PluginBase):
         else:
             return None
 
+    @staticmethod
+    def __get_redict_url(url: str, proxies: str = None, ua: str = None, cookie: str = None) -> Optional[str]:
+        """
+        获取下载链接， url格式：[base64]url
+        """
+        # 获取[]中的内容
+        m = re.search(r"\[(.*)](.*)", url)
+        if m:
+            # 参数
+            base64_str = m.group(1)
+            # URL
+            url = m.group(2)
+            if not base64_str:
+                return url
+            # 解码参数
+            req_str = base64.b64decode(base64_str.encode('utf-8')).decode('utf-8')
+            req_params: Dict[str, dict] = json.loads(req_str)
+            # 是否使用cookie
+            if not req_params.get('cookie'):
+                cookie = None
+            # 请求头
+            if req_params.get('header'):
+                headers = req_params.get('header')
+            else:
+                headers = None
+            if req_params.get('method') == 'get':
+                # GET请求
+                res = RequestUtils(
+                    ua=ua,
+                    proxies=proxies,
+                    cookies=cookie,
+                    headers=headers
+                ).get_res(url, params=req_params.get('params'))
+            else:
+                # POST请求
+                res = RequestUtils(
+                    ua=ua,
+                    proxies=proxies,
+                    cookies=cookie,
+                    headers=headers
+                ).post_res(url, params=req_params.get('params'))
+            if not res:
+                return None
+            if not req_params.get('result'):
+                return res.text
+            else:
+                data = res.json()
+                for key in str(req_params.get('result')).split("."):
+                    data = data.get(key)
+                    if not data:
+                        return None
+                # logger.info(f"获取到下载地址：{data}")
+                return data
+        return None
+
     def __download(self, torrent: TorrentInfo) -> Optional[str]:
         """
         添加下载任务
         """
+        if not torrent.enclosure:
+            logger.error(f"获取下载链接失败：{torrent.title}")
+            return None
+        
         brush_config = self.__get_brush_config(torrent.site_name)
 
         # 上传限速
@@ -2458,6 +2520,16 @@ class BrushFlowLowFreq(_PluginBase):
         down_speed = int(brush_config.dl_speed) if brush_config.dl_speed else None
         # 保存地址
         download_dir = brush_config.save_path or None
+        # 获取下载链接
+        torrent_content = torrent.enclosure
+        if torrent_content.startswith("["):
+            torrent_content = self.__get_redict_url(url=torrent_content,
+                                                    proxies=settings.PROXY if torrent.site_proxy else None,
+                                                    ua=torrent.site_ua,
+                                                    cookie=torrent.site_cookie)
+        if not torrent_content:
+            logger.error(f"获取下载链接失败：{torrent.title}")
+            return None
         
         if brush_config.downloader == "qbittorrent":
             if not self.qb:
@@ -2467,15 +2539,17 @@ class BrushFlowLowFreq(_PluginBase):
             down_speed = down_speed * 1024 if down_speed else None
             # 生成随机Tag
             tag = StringUtils.generate_random_str(10)
-            torrent_content = torrent.enclosure
-            if brush_config.proxy_download:
-                request = RequestUtils(cookies=torrent.site_cookie, ua=torrent.site_ua)
-                response = request.get_res(url=torrent.enclosure)
+            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
+            if brush_config.proxy_download and not torrent_content.startswith("magnet"):
+                response = RequestUtils(cookies=torrent.site_cookie,
+                                        proxies=settings.PROXY if torrent.site_proxy else None,
+                                        ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
                     torrent_content = response.content
                 else:
                     logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
             if torrent_content:
+                state = True
                 state = self.qb.add_torrent(content=torrent_content,
                                             download_dir=download_dir,
                                             cookie=torrent.site_cookie,
@@ -2495,27 +2569,27 @@ class BrushFlowLowFreq(_PluginBase):
         elif brush_config.downloader == "transmission":
             if not self.tr:
                 return None
-            # 添加任务
-            torrent_content = torrent.enclosure
-            if brush_config.proxy_download:
-                request = RequestUtils(cookies=torrent.site_cookie, ua=torrent.site_ua)
-                response = request.get_res(url=torrent.enclosure)
+            # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
+            if brush_config.proxy_download and not torrent_content.startswith("magnet"):
+                response = RequestUtils(cookies=torrent.site_cookie, 
+                                        proxies=settings.PROXY if torrent.site_proxy else None,
+                                        ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
                     torrent_content = response.content
                 else:
                     logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
             if torrent_content:
                 torrent = self.tr.add_torrent(content=torrent.enclosure,
-                                          download_dir=download_dir,
-                                          cookie=torrent.site_cookie,
-                                          labels=["已整理", brush_config.brush_tag])
+                                              download_dir=download_dir,
+                                              cookie=torrent.site_cookie,
+                                              labels=["已整理", brush_config.brush_tag])
                 if not torrent:
                     return None
                 else:
                     if brush_config.up_speed or brush_config.dl_speed:
                         self.tr.change_torrent(hash_string=torrent.hashString,
-                                            upload_limit=up_speed,
-                                            download_limit=down_speed)
+                                               upload_limit=up_speed,
+                                               download_limit=down_speed)
                     return torrent.hashString
         return None
 
@@ -2916,17 +2990,21 @@ class BrushFlowLowFreq(_PluginBase):
     def __filter_torrents_contains_subscribe(self, torrents : Any):
         subscribe_titles = self.__get_subscribe_titles()
         logger.info(f"当前订阅的名称集合为：{subscribe_titles}")
-
+        
         # 初始化两个列表，一个用于收集未被排除的种子，一个用于记录被排除的种子
         included_torrents = []
         excluded_torrents = []
 
         # 单次遍历处理
         for torrent in torrents:
-            if any(title in torrent.title or title in torrent.description for title in subscribe_titles):
+            # 确保title和description至少是空字符串
+            title = torrent.title or ''
+            description = torrent.description or ''
+            
+            if any(subscribe_title in title or subscribe_title in description for subscribe_title in subscribe_titles):
                 # 如果种子的标题或描述包含订阅标题中的任一项，则记录为被排除
                 excluded_torrents.append(torrent)
-                logger.info(f"命中订阅内容，排除种子：{torrent.title}|{torrent.description}")
+                logger.info(f"命中订阅内容，排除种子：{title}|{description}")
             else:
                 # 否则，收集为未被排除的种子
                 included_torrents.append(torrent)
