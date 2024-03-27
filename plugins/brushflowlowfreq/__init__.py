@@ -21,7 +21,7 @@ from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
-from app.schemas import Notification, NotificationType, TorrentInfo
+from app.schemas import NotificationType, TorrentInfo
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
@@ -2246,7 +2246,7 @@ class BrushFlowLowFreq(_PluginBase):
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
             
         msg = f"已完成 {len(need_delete_hashes)} 个种子删除，当前保种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB"
-        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title="【刷流任务种子删除】", text=msg))
+        self.post_message(mtype=NotificationType.SiteMessage, title="【刷流任务种子删除】", text=msg)
         logger.info(msg)
                             
         # 返回所有需要删除的种子的哈希列表
@@ -2885,7 +2885,7 @@ class BrushFlowLowFreq(_PluginBase):
         if reason:
             msg_text = f"{msg_text}\n原因：{reason}"
             
-        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title=title, text=msg_text))
+        self.post_message(mtype=NotificationType.SiteMessage, title=title, text=msg_text)
             
     def __build_add_message_text(self, torrent):
         """
@@ -2929,7 +2929,7 @@ class BrushFlowLowFreq(_PluginBase):
 
         # 使用辅助方法构建消息文本
         msg_text = self.__build_add_message_text(torrent)
-        self.chain.post_message(Notification(mtype=NotificationType.SiteMessage, title=title, text=msg_text))
+        self.post_message(mtype=NotificationType.SiteMessage, title=title, text=msg_text)
 
     def __get_torrents_size(self) -> int:
         """
