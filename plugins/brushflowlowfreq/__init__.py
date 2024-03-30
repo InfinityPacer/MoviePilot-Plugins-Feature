@@ -271,6 +271,12 @@ class BrushFlowLowFreq(_PluginBase):
         # 同步官方插件
         self.__sync_official(config=config)
 
+        if brush_config.log_more:
+            if brush_config.enable_site_config:
+                logger.info(f"已开启站点独立配置，配置信息：{brush_config}")
+            else:
+                logger.info(f"没有开启站点独立配置，配置信息：{brush_config}")
+
         # 停止现有任务
         self.stop_service()
 
