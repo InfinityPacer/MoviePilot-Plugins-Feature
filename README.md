@@ -47,7 +47,7 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
   ##### 站点独立配置
 
-  目前站点独立配置支持以下配置项，配置格式为json，通过sitename进行匹配，没有找到对应配置项时，则以全局配置项为准
+  目前站点独立配置支持以下配置项，配置格式为json，通过sitename进行匹配，没有找到对应配置项时，则以全局配置项为准，**请注意，如与全局保持一致的配置项，请勿在站点配置中配置，此外hr配置项为排除H&R，请按下述内容进行配置，配置完成后，请在日志查看是否配置成功**，可打开**记录更多日志**配置项以便更好排查问题。
 
   - `sitename`: 站点名称
   - `freeleech`: 促销
@@ -76,7 +76,19 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
   ```json
   [{
-      "sitename": "站点1",
+    "sitename": "站点1",
+    "seed_time": 96
+  }, {
+      "sitename": "站点2",
+      "hr": "yes",
+      "size": "10-500",
+      "seeder": "5-10",
+      "pubtime": "5-120",
+      "seed_time": 96,
+      "save_path": "/downloads/site2",
+      "proxy_download": true
+  }, {
+      "sitename": "站点3",
       "freeleech": "free",
       "hr": "no",
       "include": "",
@@ -93,15 +105,6 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
       "save_path": "/downloads/site1",
       "proxy_download": false,
       "proxy_delete": false
-  }, {
-      "sitename": "站点2",
-      "hr": "yes",
-      "size": "10-500",
-      "seeder": "5-10",
-      "pubtime": "5-120",
-      "seed_time": 96,
-      "save_path": "/downloads/site2",
-      "proxy_download": true
   }]
   ```  
 
