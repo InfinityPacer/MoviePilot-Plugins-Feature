@@ -2723,11 +2723,14 @@ class BrushFlowLowFreq(_PluginBase):
         download_dir = brush_config.save_path or None
         # 获取下载链接
         torrent_content = torrent.enclosure
+        # 部分站点下载种子不需要传递Cookie
+        need_download_cookie = True
         if torrent_content.startswith("["):
             torrent_content = self.__get_redict_url(url=torrent_content,
                                                     proxies=settings.PROXY if torrent.site_proxy else None,
                                                     ua=torrent.site_ua,
                                                     cookie=torrent.site_cookie)
+            need_download_cookie = False
         if not torrent_content:
             logger.error(f"获取下载链接失败：{torrent.title}")
             return None
@@ -2742,7 +2745,7 @@ class BrushFlowLowFreq(_PluginBase):
             tag = StringUtils.generate_random_str(10)
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
             if brush_config.proxy_download and not torrent_content.startswith("magnet"):
-                response = RequestUtils(cookies=torrent.site_cookie,
+                response = RequestUtils(cookies=torrent.site_cookie if need_download_cookie else None,
                                         proxies=settings.PROXY if torrent.site_proxy else None,
                                         ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
@@ -2752,7 +2755,7 @@ class BrushFlowLowFreq(_PluginBase):
             if torrent_content:
                 state = self.qb.add_torrent(content=torrent_content,
                                             download_dir=download_dir,
-                                            cookie=torrent.site_cookie,
+                                            cookie=torrent.site_cookie if need_download_cookie else None,
                                             tag=["已整理", brush_config.brush_tag, tag],
                                             upload_limit=up_speed,
                                             download_limit=down_speed)
@@ -2773,7 +2776,7 @@ class BrushFlowLowFreq(_PluginBase):
                 return None
             # 如果开启代理下载以及种子地址不是磁力地址，则请求种子到内存再传入下载器
             if brush_config.proxy_download and not torrent_content.startswith("magnet"):
-                response = RequestUtils(cookies=torrent.site_cookie,
+                response = RequestUtils(cookies=torrent.site_cookie if need_download_cookie else None,
                                         proxies=settings.PROXY if torrent.site_proxy else None,
                                         ua=torrent.site_ua).get_res(url=torrent_content)
                 if response and response.ok:
@@ -2783,7 +2786,7 @@ class BrushFlowLowFreq(_PluginBase):
             if torrent_content:
                 torrent = self.tr.add_torrent(content=torrent_content,
                                               download_dir=download_dir,
-                                              cookie=torrent.site_cookie,
+                                              cookie=torrent.site_cookie if need_download_cookie else None,
                                               labels=["已整理", brush_config.brush_tag])
                 if not torrent:
                     return None
