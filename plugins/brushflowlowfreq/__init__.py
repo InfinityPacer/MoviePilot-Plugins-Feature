@@ -184,7 +184,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -1319,6 +1319,10 @@ class BrushFlowLowFreq(_PluginBase):
                     },
                     {
                         'component': 'td',
+                        'text': f"{data.get('seeding_time') / 3600:.1f}" if data.get('seeding_time') else "N/A"
+                    },
+                    {
+                        'component': 'td',
                         'props': {
                             'class': 'text-no-wrap'
                         },
@@ -1686,6 +1690,13 @@ class BrushFlowLowFreq(_PluginBase):
                                                 'props': {
                                                     'class': 'text-start ps-4'
                                                 },
+                                                'text': '做种时间'
+                                            },
+                                            {
+                                                'component': 'th',
+                                                'props': {
+                                                    'class': 'text-start ps-4'
+                                                },
                                                 'text': '状态'
                                             }
                                         ]
@@ -1871,6 +1882,7 @@ class BrushFlowLowFreq(_PluginBase):
                 "ratio": 0,
                 "downloaded": 0,
                 "uploaded": 0,
+                "seeding_time": 0,
                 "deleted": False,
                 "time": time.time()
             }
@@ -1981,9 +1993,9 @@ class BrushFlowLowFreq(_PluginBase):
         if brush_config.size:
             sizes = [float(size) * 1024 ** 3 for size in brush_config.size.split("-")]
             if len(sizes) == 1 and torrent.size < sizes[0]:
-                return False, "种子大小不符合条件"
+                return False, f"种子大小 {self.__bytes_to_gb(torrent.size):.1f} GB，不符合条件"
             elif len(sizes) > 1 and not sizes[0] <= torrent.size <= sizes[1]:
-                return False, "种子大小不在指定范围内"
+                return False, f"种子大小 {self.__bytes_to_gb(torrent.size):.1f} GB，不在指定范围内"
 
         # 做种人数
         if brush_config.seeder:
@@ -1992,12 +2004,12 @@ class BrushFlowLowFreq(_PluginBase):
             if len(seeders_range) == 1:
                 # 当做种人数大于该数字时，不符合条件
                 if torrent.seeders > seeders_range[0]:
-                    return False, "做种人数超过单个指定值"
+                    return False, f"做种人数 {torrent.seeders}，超过单个指定值"
             # 如果指定了一个范围
             elif len(seeders_range) > 1:
                 # 检查做种人数是否在指定的范围内（包括边界）
                 if not (seeders_range[0] <= torrent.seeders <= seeders_range[1]):
-                    return False, "做种人数不在指定范围内"
+                    return False, f"做种人数 {torrent.seeders}，不在指定范围内"
 
         # 发布时间
         pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
@@ -2007,11 +2019,11 @@ class BrushFlowLowFreq(_PluginBase):
             if len(pubtimes) == 1:
                 # 单个值：选择发布时间小于等于该值的种子
                 if pubdate_minutes > pubtimes[0]:
-                    return False, "发布时间不符合条件"
+                    return False, f"发布时间 {pubdate_minutes:.0f} 分钟前，不符合条件"
             else:
                 # 范围值：选择发布时间在范围内的种子
                 if not (pubtimes[0] <= pubdate_minutes <= pubtimes[1]):
-                    return False, "发布时间不在指定范围内"
+                    return False, f"发布时间 {pubdate_minutes:.0f} 分钟前，不在指定范围内"
 
         return True, None
 
@@ -2080,20 +2092,22 @@ class BrushFlowLowFreq(_PluginBase):
             # 先更新刷流任务的最新状态，上下传，分享率
             self.__update_torrent_tasks_state(torrents=check_torrents, torrent_tasks=torrent_tasks)
 
-            # 排除MoviePilot种子
-            if check_torrents and brush_config.except_tags:
-                check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents,
-                                                               exclude_tag=settings.TORRENT_TAG)
-
             # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
             undeleted_hashes = self.__get_undeleted_torrents_missing_in_downloader(torrent_tasks, torrent_check_hashes,
                                                                                    check_torrents) or []
+
             # 这里提前把已经被删除的种子进行标记，避免开启动态删除种子统计体积有时差
             if undeleted_hashes:
                 for torrent_hash in undeleted_hashes:
                     torrent_tasks[torrent_hash]["deleted"] = True
 
+            # 排除MoviePilot种子
+            if check_torrents and brush_config.except_tags:
+                check_torrents = self.__filter_torrents_by_tag(torrents=check_torrents,
+                                                               exclude_tag=settings.TORRENT_TAG)
+
             need_delete_hashes = []
+
             # 如果配置了删种阈值，则根据动态删种进行分组处理
             if brush_config.proxy_delete and brush_config.delete_size_range:
                 logger.info("已开启动态删种，按系统默认动态删种条件开始检查任务")
@@ -2136,6 +2150,7 @@ class BrushFlowLowFreq(_PluginBase):
                 "downloaded": torrent_info.get("downloaded"),
                 "uploaded": torrent_info.get("uploaded"),
                 "ratio": torrent_info.get("ratio"),
+                "seeding_time": torrent_info.get("seeding_time"),
             })
 
     def __update_seeding_tasks_based_on_tags(self, torrent_tasks: Dict[str, dict], unmanaged_tasks: Dict[str, dict],
@@ -2330,7 +2345,7 @@ class BrushFlowLowFreq(_PluginBase):
                 torrent_info_map[self.__get_hash(torrent)].get("total_size", 0) for torrent in proxy_delete_torrents if
                 self.__get_hash(torrent) in proxy_delete_hashes)
 
-        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按加入时间正序进行删除
+        # 在完成初始删除步骤后，如果总体积仍然超过最小阈值，则进一步找到已完成种子并排除HR种子后按做种时间正序进行删除
         if total_torrent_size > min_size:
             # 重新计算当前的种子列表，排除已删除的种子
             remaining_hashes = list(
@@ -2341,10 +2356,10 @@ class BrushFlowLowFreq(_PluginBase):
             remaining_hashes = {self.__get_hash(torrent) for torrent in completed_torrents}
             remaining_torrents = [(_hash, torrent_info_map[_hash]) for _hash in remaining_hashes]
 
-            # 准备一个列表，用于存放满足条件的种子，即非HR种子且有明确加入时间
-            filtered_torrents = [(_hash, info['add_on']) for _hash, info in remaining_torrents if
+            # 准备一个列表，用于存放满足条件的种子，即非HR种子且有明确做种时间
+            filtered_torrents = [(_hash, info['seeding_time']) for _hash, info in remaining_torrents if
                                  not torrent_tasks[_hash].get("hit_and_run", False)]
-            sorted_torrents = sorted(filtered_torrents, key=lambda x: x[1])
+            sorted_torrents = sorted(filtered_torrents, key=lambda x: x[1], reverse=True)
 
             # 进行额外的删除操作，直到满足最小阈值或没有更多种子可删除
             for torrent_hash, _ in sorted_torrents:
@@ -2361,10 +2376,13 @@ class BrushFlowLowFreq(_PluginBase):
                 site_name = torrent_task.get("site_name", "")
                 torrent_title = torrent_task.get("title", "")
                 torrent_desc = torrent_task.get("description", "")
-                reason = "触发动态删除，系统自动删除"
-                self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
-                                           reason=reason)
-                logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
+                seeding_time = torrent_task.get("seeding_time", 0)
+                if seeding_time:
+                    reason = f"触发动态删除，做种时间 {seeding_time / 3600:.1f} 小时，系统自动删除"
+                    self.__send_delete_message(site_name=site_name, torrent_title=torrent_title,
+                                               torrent_desc=torrent_desc,
+                                               reason=reason)
+                    logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
 
         msg = f"已完成 {len(need_delete_hashes)} 个种子删除，当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB"
         self.post_message(mtype=NotificationType.SiteMessage, title="【刷流任务种子删除】", text=msg)
@@ -2683,7 +2701,7 @@ class BrushFlowLowFreq(_PluginBase):
                     data = data.get(key)
                     if not data:
                         return None
-                # logger.info(f"获取到下载地址：{data}")
+                logger.info(f"获取到下载地址：{data}")
                 return data
         return None
 
