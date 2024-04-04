@@ -140,7 +140,7 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
       "seed_inactivetime": "",
       "save_path": "/downloads/site1",
       "proxy_download": false,
-      "proxy_delete": false,
+      "proxy_delete": false
   }]
   ```  
 
