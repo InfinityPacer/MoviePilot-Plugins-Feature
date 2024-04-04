@@ -69,8 +69,11 @@ class BrushConfig:
         self.proxy_delete = config.get("proxy_delete", False)
         self.log_more = config.get("log_more", False)
         self.active_time_range = config.get("active_time_range")
-        self.enable_site_config = config.get("enable_site_config", False)
+        self.downloader_monitor = config.get("downloader_monitor")
+
         self.brush_tag = "刷流"
+        # 站点独立配置
+        self.enable_site_config = config.get("enable_site_config", False)
         self.site_config = config.get("site_config", "[]")
         self.group_site_configs = {}
 
@@ -1065,6 +1068,22 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
+                                            'model': 'downloader_monitor',
+                                            'label': '下载器监控',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
                                             'model': 'log_more',
                                             'label': '记录更多日志',
                                         }
@@ -1237,7 +1256,8 @@ class BrushFlowLowFreq(_PluginBase):
             "freeleech": "free",
             "hr": "yes",
             "enable_site_config": False,
-            "log_more": False
+            "log_more": False,
+            "downloader_monitor": False,
         }
 
     def get_page(self) -> List[dict]:
@@ -2077,6 +2097,7 @@ class BrushFlowLowFreq(_PluginBase):
 
             seeding_torrents_dict = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
 
+            # 检查种子刷流标签变更情况
             self.__update_seeding_tasks_based_on_tags(torrent_tasks=torrent_tasks, unmanaged_tasks=unmanaged_tasks,
                                                       seeding_torrents_dict=seeding_torrents_dict)
 
@@ -2152,7 +2173,14 @@ class BrushFlowLowFreq(_PluginBase):
                                              seeding_torrents_dict: Dict[str, Any]):
         brush_config = self.__get_brush_config()
 
+        if brush_config.downloader_monitor:
+            logger.info("已开启下载器监控，开始同步种子刷流标签记录")
+        else:
+            logger.info("没有开启下载器监控，取消同步种子刷流标签记录")
+            return
+
         if not brush_config.downloader == "qbittorrent":
+            logger.info("同步种子刷流标签记录目前仅支持qbittorrent")
             return
 
         # 初始化汇总信息
@@ -2404,6 +2432,14 @@ class BrushFlowLowFreq(_PluginBase):
         """
         处理已经被删除，但是任务记录中还没有被标记删除的种子
         """
+        brush_config = self.__get_brush_config()
+
+        if brush_config.downloader_monitor:
+            logger.info("已开启下载器监控，开始同步刷流任务删除记录")
+        else:
+            logger.info("没有开启下载器监控，取消同步刷流任务删除记录")
+            return
+
         # 先通过获取的全量种子，判断已经被删除，但是任务记录中还没有被标记删除的种子
         torrent_all_hashes = self.__get_all_hashes(torrents)
         missing_hashes = [hash_value for hash_value in torrent_check_hashes if hash_value not in torrent_all_hashes]
@@ -2624,6 +2660,7 @@ class BrushFlowLowFreq(_PluginBase):
             "proxy_delete": brush_config.proxy_delete,
             "log_more": brush_config.log_more,
             "active_time_range": brush_config.active_time_range,
+            "downloader_monitor": brush_config.downloader_monitor,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config
         }
