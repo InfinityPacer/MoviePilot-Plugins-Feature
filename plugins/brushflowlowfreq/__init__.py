@@ -51,6 +51,7 @@ class BrushConfig:
         self.seeder = config.get("seeder")
         self.pubtime = config.get("pubtime")
         self.seed_time = self.__parse_number(config.get("seed_time"))
+        self.hr_seed_time = self.__parse_number(config.get("hr_seed_time"))
         self.seed_ratio = self.__parse_number(config.get("seed_ratio"))
         self.seed_size = self.__parse_number(config.get("seed_size"))
         self.download_time = self.__parse_number(config.get("download_time"))
@@ -65,7 +66,7 @@ class BrushConfig:
         self.except_tags = config.get("except_tags", True)
         self.except_subscribe = config.get("except_subscribe", True)
         self.brush_sequential = config.get("brush_sequential", False)
-        self.proxy_download = config.get("proxy_download", True)
+        self.proxy_download = config.get("proxy_download", False)
         self.proxy_delete = config.get("proxy_delete", False)
         self.log_more = config.get("log_more", False)
         self.active_time_range = config.get("active_time_range")
@@ -94,6 +95,7 @@ class BrushConfig:
             "seeder",
             "pubtime",
             "seed_time",
+            "hr_seed_time",
             "seed_ratio",
             "seed_size",
             "download_time",
@@ -727,6 +729,23 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
+                                            'model': 'hr_seed_time',
+                                            'label': 'H&R做种时间（小时）',
+                                            'placeholder': '达到后删除任务'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    "cols": 12,
+                                    "md": 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
                                             'model': 'delete_size_range',
                                             'label': '动态删种阈值（GB）',
                                             'placeholder': '如：500 或 500-1000，达到后删除任务'
@@ -1251,7 +1270,7 @@ class BrushFlowLowFreq(_PluginBase):
             "except_tags": True,
             "except_subscribe": True,
             "brush_sequential": False,
-            "proxy_download": True,
+            "proxy_download": False,
             "proxy_delete": False,
             "freeleech": "free",
             "hr": "yes",
@@ -2267,12 +2286,27 @@ class BrushFlowLowFreq(_PluginBase):
 
         return proxy_delete_torrents, not_proxy_delete_torrents
 
-    def __evaluate_conditions_for_delete(self, site_name: str, torrent_info: dict) -> Tuple[bool, str]:
+    def __evaluate_conditions_for_delete(self, site_name: str, torrent_info: dict, torrent_task: dict) -> Tuple[bool, str]:
         """
         评估删除条件并返回是否应删除种子及其原因
         """
         brush_config = self.__get_brush_config(sitename=site_name)
 
+        reason = "未能满足设置的删除条件"
+
+        # 当配置了H&R做种时间/分享率时，则H&R种子只有达到预期行为时，才会进行删除，如果没有配置H&R做种时间/分享率，则普通种子的删除规则也适用于H&R种子
+        # 判断是否为H&R种子并且是否配置了特定的H&R条件
+        hit_and_run = torrent_task.get("hit_and_run", False)
+        hr_specific_conditions_configured = hit_and_run and (brush_config.hr_seed_time or brush_config.seed_ratio)
+        if hr_specific_conditions_configured:
+            if brush_config.hr_seed_time and torrent_info.get("seeding_time") >= float(brush_config.hr_seed_time) * 3600:
+                return True, f"H&R种子，做种时间 {torrent_info.get('seeding_time') / 3600:.1f} 小时，大于 {brush_config.hr_seed_time} 小时"
+            if brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
+                return True, f"H&R种子，分享率 {torrent_info.get('ratio'):.2f}，大于 {brush_config.seed_ratio}"
+            return False, "H&R种子，未能满足设置的H&R删除条件"
+
+        # 处理其他场景，1. 不是H&R种子；2. 是H&R种子但没有特定条件配置
+        reason = reason if not hit_and_run else "H&R种子（未设置H&R条件），未能满足设置的删除条件"
         if brush_config.seed_time and torrent_info.get("seeding_time") >= float(brush_config.seed_time) * 3600:
             reason = f"做种时间 {torrent_info.get('seeding_time') / 3600:.1f} 小时，大于 {brush_config.seed_time} 小时"
         elif brush_config.seed_ratio and torrent_info.get("ratio") >= float(brush_config.seed_ratio):
@@ -2289,15 +2323,16 @@ class BrushFlowLowFreq(_PluginBase):
                 brush_config.seed_inactivetime) * 60:
             reason = f"未活动时间 {torrent_info.get('iatime') / 60:.0f} 分钟，大于 {brush_config.seed_inactivetime} 分钟"
         else:
-            return False, ""
+            return False, reason
 
-        return True, reason
+        return True, reason if not hit_and_run else "H&R种子（未设置H&R条件），" + reason
 
     def __delete_torrent_for_evaluate_conditions(self, torrents: List[Any], torrent_tasks: Dict[str, dict],
                                                  proxy_delete: bool = False) -> List:
         """
         根据条件删除种子并获取已删除列表
         """
+        brush_config = self.__get_brush_config()
         delete_hashs = []
 
         for torrent in torrents:
@@ -2314,13 +2349,17 @@ class BrushFlowLowFreq(_PluginBase):
 
             # 删除种子的具体实现可能会根据实际情况略有不同
             should_delete, reason = self.__evaluate_conditions_for_delete(site_name=site_name,
-                                                                          torrent_info=torrent_info)
+                                                                          torrent_info=torrent_info,
+                                                                          torrent_task=torrent_task)
             if should_delete:
                 delete_hashs.append(torrent_hash)
                 reason = "触发动态删除，" + reason if proxy_delete else reason
                 self.__send_delete_message(site_name=site_name, torrent_title=torrent_title, torrent_desc=torrent_desc,
                                            reason=reason)
                 logger.info(f"站点：{site_name}，{reason}，删除种子：{torrent_title}|{torrent_desc}")
+            else:
+                if brush_config.log_more:
+                    logger.info(f"站点：{site_name}，{reason}，不删除种子：{torrent_title}|{torrent_desc}")
 
         return delete_hashs
 
@@ -2573,6 +2612,7 @@ class BrushFlowLowFreq(_PluginBase):
             "maxdlspeed": "总下载带宽",
             "maxdlcount": "同时下载任务数",
             "seed_time": "做种时间",
+            "hr_seed_time": "H&R做种时间",
             "seed_ratio": "分享率",
             "seed_size": "上传量",
             "download_time": "下载超时时间",
@@ -2642,6 +2682,7 @@ class BrushFlowLowFreq(_PluginBase):
             "seeder": brush_config.seeder,
             "pubtime": brush_config.pubtime,
             "seed_time": brush_config.seed_time,
+            "hr_seed_time": brush_config.hr_seed_time,
             "seed_ratio": brush_config.seed_ratio,
             "seed_size": brush_config.seed_size,
             "download_time": brush_config.download_time,
@@ -3394,23 +3435,39 @@ class BrushFlowLowFreq(_PluginBase):
                 "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
                 "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
         config = """[{
-    "sitename": "测试站点",
-    "freeleech": "free",
-    "hr": "no",
-    "include": "",
-    "exclude": "",
-    "size": "10-500",
-    "seeder": "1",
-    "pubtime": "5-120",
-    "seed_time": 120,
-    "seed_ratio": "",
-    "seed_size": "",
-    "download_time": "",
-    "seed_avgspeed": "",
-    "seed_inactivetime": "",
-    "save_path": "/downloads/site1",
-    "proxy_download": false
-}]"""
+  "sitename": "站点1",
+  "seed_time": 96,
+  "hr_seed_time": 144
+  }, {
+      "sitename": "站点2",
+      "hr": "yes",
+      "size": "10-500",
+      "seeder": "5-10",
+      "pubtime": "5-120",
+      "seed_time": 96,
+      "save_path": "/downloads/site2",
+      "proxy_download": true,
+      "hr_seed_time": 144
+  }, {
+      "sitename": "站点3",
+      "freeleech": "free",
+      "hr": "yes",
+      "include": "",
+      "exclude": "",
+      "size": "10-500",
+      "seeder": "1",
+      "pubtime": "5-120",
+      "seed_time": 120,
+      "hr_seed_time": 144,
+      "seed_ratio": "",
+      "seed_size": "",
+      "download_time": "",
+      "seed_avgspeed": "",
+      "seed_inactivetime": "",
+      "save_path": "/downloads/site1",
+      "proxy_download": false,
+      "proxy_delete": false,
+  }]"""
         return desc + config
 
     @staticmethod
