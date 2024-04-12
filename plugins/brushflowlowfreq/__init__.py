@@ -85,7 +85,11 @@ class BrushConfig:
 
     def __initialize_site_config(self):
         if not self.site_config:
+            logger.error(f"没有设置站点配置，已关闭站点独立配置并恢复默认配置示例，请检查配置项")
+            self.site_config = self.__get_demo_site_config()
             self.group_site_configs = {}
+            self.enable_site_config = False
+            return
 
         # 定义允许覆盖的字段列表
         allowed_fields = {
@@ -129,6 +133,47 @@ class BrushConfig:
             self.group_site_configs = {}
             self.enable_site_config = False
             self.enabled = False
+
+    @staticmethod
+    def __get_demo_site_config() -> str:
+        desc = ("//以下为配置示例，请参考 "
+                "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
+                "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
+        config = """[{
+    "sitename": "站点1",
+    "seed_time": 96,
+    "hr_seed_time": 144
+}, {
+    "sitename": "站点2",
+    "hr": "yes",
+    "size": "10-500",
+    "seeder": "5-10",
+    "pubtime": "5-120",
+    "seed_time": 96,
+    "save_path": "/downloads/site2",
+    "proxy_download": true,
+    "hr_seed_time": 144
+}, {
+    "sitename": "站点3",
+    "freeleech": "free",
+    "hr": "yes",
+    "include": "",
+    "exclude": "",
+    "size": "10-500",
+    "seeder": "1",
+    "pubtime": "5-120",
+    "seed_time": 120,
+    "hr_seed_time": 144,
+    "seed_ratio": "",
+    "seed_size": "",
+    "download_time": "",
+    "seed_avgspeed": "",
+    "seed_inactivetime": "",
+    "save_path": "/downloads/site1",
+    "proxy_download": false,
+    "proxy_delete": false
+}]"""
+        return desc + config
 
     def get_site_config(self, sitename):
         """
@@ -238,10 +283,6 @@ class BrushFlowLowFreq(_PluginBase):
         if not config:
             logger.info("站点刷流任务出错，无法获取插件配置")
             return False
-
-        # 如果没有站点配置时，增加默认的配置项
-        if not config.get("site_config"):
-            config["site_config"] = self.__get_demo_site_config()
 
         # 如果配置校验没有通过，那么这里修改配置文件后退出
         if not self.__validate_and_fix_config(config=config):
@@ -978,12 +1019,6 @@ class BrushFlowLowFreq(_PluginBase):
                     {
                         'component': 'VRow',
                         'content': [
-
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
                             {
                                 'component': 'VCol',
                                 'props': {
@@ -1198,7 +1233,7 @@ class BrushFlowLowFreq(_PluginBase):
                         "component": "VDialog",
                         "props": {
                             "model": "dialog_closed",
-                            "max-width": "80rem",
+                            "max-width": "65rem",
                             "overlay-class": "v-dialog--scrollable v-overlay--scroll-blocked",
                             "content-class": "v-card v-card--density-default v-card--variant-elevated rounded-t"
                         },
@@ -1224,12 +1259,12 @@ class BrushFlowLowFreq(_PluginBase):
                                                         },
                                                         'content': [
                                                             {
-                                                                "component": "VTextarea",
+                                                                "component": "VAceEditor",
                                                                 "props": {
-                                                                    "model": "site_config",
-                                                                    "placeholder": "请输入站点配置",
-                                                                    "label": "站点配置",
-                                                                    "rows": 16
+                                                                    'modelvalue': 'site_config',
+                                                                    'lang': 'json',
+                                                                    'theme': 'monokai',
+                                                                    'style': 'height: 30rem',
                                                                 }
                                                             }
                                                         ]
@@ -1800,12 +1835,14 @@ class BrushFlowLowFreq(_PluginBase):
             size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size)
             self.__log_brush_conditions(passed=size_condition_passed, reason=reason)
             if not size_condition_passed:
+                logger.info(f"刷流任务执行完成")
                 return
 
             # 判断能否通过刷流前置条件
             pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush()
             self.__log_brush_conditions(passed=pre_condition_passed, reason=reason)
             if not pre_condition_passed:
+                logger.info(f"刷流任务执行完成")
                 return
 
             statistic_info = self.__get_statistic_info()
@@ -1876,7 +1913,7 @@ class BrushFlowLowFreq(_PluginBase):
         for torrent in torrents:
             # 判断能否通过刷流前置条件
             pre_condition_passed, reason = self.__evaluate_pre_conditions_for_brush(include_network_conditions=False)
-            self.__log_brush_conditions(passed=pre_condition_passed, reason=reason, torrent=torrent)
+            self.__log_brush_conditions(passed=pre_condition_passed, reason=reason)
             if not pre_condition_passed:
                 return False
 
@@ -2028,9 +2065,19 @@ class BrushFlowLowFreq(_PluginBase):
         """
         brush_config = self.__get_brush_config(torrent.site_name)
 
+        # 排除重复种子
+        # 默认根据标题和站点名称进行排除
         task_key = f"{torrent.site_name}{torrent.title}"
         if any(task_key == f"{task.get('site_name')}{task.get('title')}" for task in torrent_tasks.values()):
             return False, "重复种子"
+
+        # 部分站点标题会上新时携带后缀，这里进一步根据种子详情地址进行排除
+        if torrent.page_url:
+            task_page_url = f"{torrent.site_name}{torrent.page_url}"
+            logger.info(f"{task_page_url}")
+            if any(task_page_url == f"{task.get('site_name')}{task.get('page_url')}" for task in
+                   torrent_tasks.values()):
+                return False, "重复种子"
 
         # 促销条件
         if brush_config.freeleech and torrent.downloadvolumefactor != 0:
@@ -2064,7 +2111,7 @@ class BrushFlowLowFreq(_PluginBase):
 
         # 做种人数
         if brush_config.seeder:
-            seeders_range = [int(n) for n in brush_config.seeder.split("-")]
+            seeders_range = [float(n) for n in brush_config.seeder.split("-")]
             # 检查是否仅指定了一个数字，即做种人数需要小于等于该数字
             if len(seeders_range) == 1:
                 # 当做种人数大于该数字时，不符合条件
@@ -2080,7 +2127,7 @@ class BrushFlowLowFreq(_PluginBase):
         pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
         pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
         if brush_config.pubtime:
-            pubtimes = [int(n) for n in brush_config.pubtime.split("-")]
+            pubtimes = [float(n) for n in brush_config.pubtime.split("-")]
             if len(pubtimes) == 1:
                 # 单个值：选择发布时间小于等于该值的种子
                 if pubdate_minutes > pubtimes[0]:
@@ -2098,7 +2145,7 @@ class BrushFlowLowFreq(_PluginBase):
         """
         if not passed:
             if not torrent:
-                logger.warn(f"种子没有通过前置刷流条件校验，原因：{reason}")
+                logger.warn(f"没有通过前置刷流条件校验，原因：{reason}")
             else:
                 brush_config = self.__get_brush_config()
                 if brush_config.log_more:
@@ -2873,7 +2920,7 @@ class BrushFlowLowFreq(_PluginBase):
                 if response and response.ok:
                     torrent_content = response.content
                 else:
-                    logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
+                    logger.error('尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载')
             if torrent_content:
                 state = self.qb.add_torrent(content=torrent_content,
                                             download_dir=download_dir,
@@ -2888,7 +2935,7 @@ class BrushFlowLowFreq(_PluginBase):
                     torrent_hash = self.qb.get_torrent_id_by_tag(tags=tag)
                     if not torrent_hash:
                         logger.error(f"{brush_config.downloader} 获取种子Hash失败"
-                                     f"{'，请尝试开启代理下载种子' if not brush_config.proxy_download else ''}")
+                                     f"{'，请尝试启用「代理下载种子」配置项' if not brush_config.proxy_download else ''}")
                         return None
                     return torrent_hash
             return None
@@ -2904,7 +2951,7 @@ class BrushFlowLowFreq(_PluginBase):
                 if response and response.ok:
                     torrent_content = response.content
                 else:
-                    logger.error('代理下载种子失败，继续尝试传递种子地址到下载器进行下载')
+                    logger.error('尝试通过MP下载种子失败，继续尝试传递种子地址到下载器进行下载')
             if torrent_content:
                 torrent = self.tr.add_torrent(content=torrent_content,
                                               download_dir=download_dir,
@@ -3420,9 +3467,9 @@ class BrushFlowLowFreq(_PluginBase):
     @staticmethod
     def __is_number_or_range(value):
         """
-        检查字符串是否表示单个数字或数字范围（如'5'或'5-10'）
+        检查字符串是否表示单个数字或数字范围（如'5', '5.5', '5-10' 或 '5.5-10.2'）
         """
-        return bool(re.match(r"^\d+(-\d+)?$", value))
+        return bool(re.match(r"^\d+(\.\d+)?(-\d+(\.\d+)?)?$", value))
 
     @staticmethod
     def __is_number(value):
@@ -3497,47 +3544,6 @@ class BrushFlowLowFreq(_PluginBase):
             "active_downloaded": 0
         }
         return statistic_info
-
-    @staticmethod
-    def __get_demo_site_config() -> str:
-        desc = ("以下为配置示例，请参考 "
-                "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
-                "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
-        config = """[{
-  "sitename": "站点1",
-  "seed_time": 96,
-  "hr_seed_time": 144
-  }, {
-      "sitename": "站点2",
-      "hr": "yes",
-      "size": "10-500",
-      "seeder": "5-10",
-      "pubtime": "5-120",
-      "seed_time": 96,
-      "save_path": "/downloads/site2",
-      "proxy_download": true,
-      "hr_seed_time": 144
-  }, {
-      "sitename": "站点3",
-      "freeleech": "free",
-      "hr": "yes",
-      "include": "",
-      "exclude": "",
-      "size": "10-500",
-      "seeder": "1",
-      "pubtime": "5-120",
-      "seed_time": 120,
-      "hr_seed_time": 144,
-      "seed_ratio": "",
-      "seed_size": "",
-      "download_time": "",
-      "seed_avgspeed": "",
-      "seed_inactivetime": "",
-      "save_path": "/downloads/site1",
-      "proxy_download": false,
-      "proxy_delete": false,
-  }]"""
-        return desc + config
 
     @staticmethod
     def __is_valid_time_range(time_range: str) -> bool:
