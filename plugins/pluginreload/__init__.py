@@ -12,7 +12,7 @@ class PluginReload(_PluginBase):
     # 插件描述
     plugin_desc = "支持插件热重载，用于Docker调试"
     # 插件图标
-    plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/icons/reload.png"
+    plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reload.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
