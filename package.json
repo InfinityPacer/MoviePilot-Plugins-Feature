@@ -11,5 +11,16 @@
             "v2.6": "修复排除订阅功能",
             "v2.5": "增加H&R做种时间、下载器监控配置项，刷流前置条件逻辑调整，代理下载种子默认为关闭"
         }
+    },
+    "PluginReload": {
+        "name": "插件重载",
+        "description": "支持插件热重载。",
+        "version": "1.0",
+        "icon": "reload.png",
+        "author": "InfinityPacer",
+        "level": 1,
+        "history": {
+            "v1.0": "增加热重载插件，用于Docker调试"
+        }
     }
 }
