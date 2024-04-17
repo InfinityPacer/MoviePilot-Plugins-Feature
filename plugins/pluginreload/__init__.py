@@ -58,7 +58,10 @@ class PluginReload(_PluginBase):
         # 已安装插件
         local_plugins = PluginManager().get_local_plugins()
         # 遍历 local_plugins，生成插件类型选项
-        plugin_options = []
+        plugin_options = [{
+            "title": "",
+            "value": None
+        }]
 
         for local_plugin in local_plugins:
             if local_plugin.id != "PluginReload":
