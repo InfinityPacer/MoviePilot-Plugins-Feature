@@ -12,7 +12,7 @@ class PluginReload(_PluginBase):
     # 插件描述
     plugin_desc = "支持插件热重载，用于Docker调试"
     # 插件图标
-    plugin_icon = "Reload.png"
+    plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/icons/reload.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
@@ -27,16 +27,19 @@ class PluginReload(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    _plugin_id = []
+    _plugin_id = None
+    _previous_state = False
 
     def init_plugin(self, config: dict = None):
         if config:
-            self._plugin_id = config.get("plugin_id") or None
+            self._previous_state = config.get("previous_state", None)
+            self._plugin_id = config.get("plugin_id", None)
             if not self._plugin_id:
+                self.__update_config()
                 return
 
             self.__reload(plugin_id=self._plugin_id)
-            self.update_config({})
+            self.__update_config()
 
     def get_state(self):
         pass
@@ -73,7 +76,7 @@ class PluginReload(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12
+                                    'cols': 8
                                 },
                                 'content': [
                                     {
@@ -83,6 +86,21 @@ class PluginReload(_PluginBase):
                                             'model': 'plugin_id',
                                             'label': '插件重载',
                                             'items': plugin_options
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'previous_state',
+                                            'label': '记住上一次',
                                         }
                                     }
                                 ]
@@ -114,6 +132,7 @@ class PluginReload(_PluginBase):
             }
         ], {
             "plugin_id": "",
+            "previous_state": True,
         }
 
     def get_page(self) -> List[dict]:
@@ -125,7 +144,8 @@ class PluginReload(_PluginBase):
         """
         pass
 
-    def __reload(self, plugin_id: str):
+    @staticmethod
+    def __reload(plugin_id: str):
         logger.info(f"Starting reload process for plugin: {plugin_id}")
 
         # 加载插件到内存
@@ -145,3 +165,16 @@ class PluginReload(_PluginBase):
             return
 
         logger.info(f"Completed reload process for plugin: {plugin_id}")
+
+    def __update_config(self):
+        """
+        更新配置
+        """
+        config_mapping = {
+            "previous_state": self._previous_state
+        }
+        if self._previous_state:
+            config_mapping["plugin_id"] = self._plugin_id
+
+        # 使用update_config方法或其等效方法更新配置
+        self.update_config(config_mapping)

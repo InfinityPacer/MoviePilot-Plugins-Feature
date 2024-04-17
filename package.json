@@ -16,7 +16,7 @@
         "name": "插件重载",
         "description": "支持插件热重载。",
         "version": "1.0",
-        "icon": "reload.png",
+        "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/icons/reload.png",
         "author": "InfinityPacer",
         "level": 1,
         "history": {
