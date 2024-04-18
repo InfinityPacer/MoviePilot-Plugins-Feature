@@ -8,9 +8,9 @@ from app.scheduler import Scheduler
 
 class PluginReload(_PluginBase):
     # 插件名称
-    plugin_name = "插件重载"
+    plugin_name = "插件热重载"
     # 插件描述
-    plugin_desc = "支持插件热重载，用于Docker调试"
+    plugin_desc = "支持插件热重载，用于Docker调试。"
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reload.png"
     # 插件版本

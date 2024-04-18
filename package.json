@@ -13,8 +13,8 @@
         }
     },
     "PluginReload": {
-        "name": "插件重载",
-        "description": "支持插件热重载。",
+        "name": "插件热重载",
+        "description": "支持插件热重载，用于Docker调试。",
         "version": "1.0",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reload.png",
         "author": "InfinityPacer",
