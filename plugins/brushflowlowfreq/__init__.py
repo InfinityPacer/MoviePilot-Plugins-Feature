@@ -86,7 +86,7 @@ class BrushConfig:
     def __initialize_site_config(self):
         if not self.site_config:
             logger.error(f"没有设置站点配置，已关闭站点独立配置并恢复默认配置示例，请检查配置项")
-            self.site_config = self.__get_demo_site_config()
+            self.site_config = self.get_demo_site_config()
             self.group_site_configs = {}
             self.enable_site_config = False
             return
@@ -113,7 +113,9 @@ class BrushConfig:
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
-            site_configs = json.loads(self.site_config)
+            # site_config中去掉以//开始的行
+            site_config = re.sub(r'//.*?\n', '', self.site_config).strip()
+            site_configs = json.loads(site_config)
             self.group_site_configs = {}
             for config in site_configs:
                 sitename = config.get("sitename")
@@ -135,10 +137,9 @@ class BrushConfig:
             self.enabled = False
 
     @staticmethod
-    def __get_demo_site_config() -> str:
-        desc = ("//以下为配置示例，请参考 "
-                "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md "
-                "进行配置，请注意，只需要保留实际配置内容（删除这段）\n")
+    def get_demo_site_config() -> str:
+        desc = ("// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md 进行配置\n"
+                "// 注意无关内容需使用 // 注释\n")
         config = """[{
     "sitename": "站点1",
     "seed_time": 96,
@@ -237,7 +238,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.7"
+    plugin_version = "2.8"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -464,7 +465,20 @@ class BrushFlowLowFreq(_PluginBase):
                                             'type': 'success',
                                             'variant': 'tonal'
                                         },
-                                        'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">部分配置项以及细节请参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'text': '部分配置项以及细节请参考：'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -1240,10 +1254,15 @@ class BrushFlowLowFreq(_PluginBase):
                         "content": [
                             {
                                 "component": "VCard",
+                                "props": {
+                                    "title": "设置站点配置"
+                                },
                                 "content": [
                                     {
-                                        "component": "VCardItem",
-                                        "text": "设置站点配置"
+                                        "component": "VDialogCloseBtn",
+                                        "props": {
+                                            "model": "dialog_closed"
+                                        }
                                     },
                                     {
                                         "component": "VCardText",
@@ -1259,8 +1278,8 @@ class BrushFlowLowFreq(_PluginBase):
                                                         },
                                                         'content': [
                                                             {
-                                                                "component": "VAceEditor",
-                                                                "props": {
+                                                                'component': 'VAceEditor',
+                                                                'props': {
                                                                     'modelvalue': 'site_config',
                                                                     'lang': 'json',
                                                                     'theme': 'monokai',
@@ -1286,7 +1305,20 @@ class BrushFlowLowFreq(_PluginBase):
                                                                     'type': 'info',
                                                                     'variant': 'tonal'
                                                                 },
-                                                                'html': "<span class=\"v-alert__underlay\"></span><div class=\"v-alert__prepend\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"             aria-hidden=\"true\" role=\"img\" tag=\"i\" class=\"v-icon notranslate v-theme--purple iconify iconify--mdi\"             density=\"default\" width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\"             style=\"font-size: 28px; height: 28px; width: 28px;\">             <path fill=\"currentColor\"                 d=\"M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8s8 3.59 8 8s-3.59 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2m-1 15h2v-6h-2v6Z\">             </path>         </svg></div>     <div class=\"v-alert__content\">注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考<a href='https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md' target='_blank'>https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md</a></div>"
+                                                                'content': [
+                                                                    {
+                                                                        'component': 'span',
+                                                                        'text': '注意：只有启用站点独立配置时，该配置项才会生效，详细配置参考：'
+                                                                    },
+                                                                    {
+                                                                        'component': 'a',
+                                                                        'props': {
+                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                                            'target': '_blank'
+                                                                        },
+                                                                        'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                                                    }
+                                                                ]
                                                             }
                                                         ]
                                                     }
@@ -1316,6 +1348,7 @@ class BrushFlowLowFreq(_PluginBase):
             "enable_site_config": False,
             "log_more": False,
             "downloader_monitor": False,
+            "site_config": BrushConfig.get_demo_site_config()
         }
 
     def get_page(self) -> List[dict]:
@@ -1461,7 +1494,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '总上传量(活跃)'
+                                                        'text': '总上传量 / 活跃'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1474,7 +1507,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_uploaded}({total_active_uploaded})"
+                                                                'text': f"{total_uploaded} / {total_active_uploaded}"
                                                             }
                                                         ]
                                                     }
@@ -1531,7 +1564,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '总下载量(活跃)'
+                                                        'text': '总下载量 / 活跃'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1544,7 +1577,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_downloaded}({total_active_downloaded})"
+                                                                'text': f"{total_downloaded} / {total_active_downloaded}"
                                                             }
                                                         ]
                                                     }
@@ -1601,7 +1634,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '下载种子数(活跃)'
+                                                        'text': '下载种子数 / 活跃'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1614,7 +1647,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_count}({total_active})"
+                                                                'text': f"{total_count} / {total_active}"
                                                             }
                                                         ]
                                                     }
@@ -1671,7 +1704,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         'props': {
                                                             'class': 'text-caption'
                                                         },
-                                                        'text': '删除种子数(待归档)'
+                                                        'text': '删除种子数 / 待归档'
                                                     },
                                                     {
                                                         'component': 'div',
@@ -1684,7 +1717,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                                 'props': {
                                                                     'class': 'text-h6'
                                                                 },
-                                                                'text': f"{total_deleted}({total_unarchived})"
+                                                                'text': f"{total_deleted} / {total_unarchived}"
                                                             }
                                                         ]
                                                     }
@@ -2494,7 +2527,7 @@ class BrushFlowLowFreq(_PluginBase):
         return delete_hashs
 
     def __delete_torrent_for_proxy(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> List:
-        """      
+        """
         动态删除种子，删除规则如下；
         - 不管做种体积是否超过设定的动态删除阈值，默认优先执行排除H&R种子后满足「下载超时时间」的种子
         - 上述规则执行完成后，当做种体积依旧超过设定的动态删除阈值时，继续执行下述种子删除规则
@@ -3678,7 +3711,7 @@ class BrushFlowLowFreq(_PluginBase):
 
             magnet_link = torrent.get("magnet_uri")
             if magnet_link:
-                query_params = parse_qs(urlparse(magnet_link).query)
+                query_params: dict = parse_qs(urlparse(magnet_link).query)
                 encoded_tracker_urls = query_params.get('tr', [])
                 # 解码tracker URLs然后扩展到trackers列表中
                 decoded_tracker_urls = [unquote(url) for url in encoded_tracker_urls]
