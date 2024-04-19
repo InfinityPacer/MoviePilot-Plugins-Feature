@@ -2157,17 +2157,18 @@ class BrushFlowLowFreq(_PluginBase):
 
         # 发布时间
         pubdate_minutes = self.__get_pubminutes(torrent.pubdate)
-        pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
+        # 已支持独立站点配置，取消单独适配站点时区逻辑，可通过配置项「pubtime」自行适配
+        # pubdate_minutes = self.__adjust_site_pubminutes(pubdate_minutes, torrent)
         if brush_config.pubtime:
             pubtimes = [float(n) for n in brush_config.pubtime.split("-")]
             if len(pubtimes) == 1:
                 # 单个值：选择发布时间小于等于该值的种子
                 if pubdate_minutes > pubtimes[0]:
-                    return False, f"发布时间 {pubdate_minutes:.0f} 分钟前，不符合条件"
+                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不符合条件"
             else:
                 # 范围值：选择发布时间在范围内的种子
                 if not (pubtimes[0] <= pubdate_minutes <= pubtimes[1]):
-                    return False, f"发布时间 {pubdate_minutes:.0f} 分钟前，不在指定范围内"
+                    return False, f"发布时间 {torrent.pubdate}，{pubdate_minutes:.0f} 分钟前，不在指定范围内"
 
         return True, None
 
