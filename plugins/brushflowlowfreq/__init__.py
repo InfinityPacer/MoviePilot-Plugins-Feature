@@ -468,82 +468,6 @@ class BrushFlowLowFreq(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'success',
-                                            'variant': 'tonal'
-                                        },
-                                        'content': [
-                                            {
-                                                'component': 'span',
-                                                'text': '部分配置项以及细节请参考：'
-                                            },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
-                                                    'target': '_blank'
-                                                },
-                                                'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'warning',
-                                            'variant': 'tonal',
-                                            'text': '注意：启用官方刷流插件时，本插件无法正常使用，可尝试停用官方插件后通过双向同步官方数据再开启使用，请不要同时启用两个插件，否则可能导致种子异常甚至数据丢失！'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'error',
-                                            'variant': 'tonal',
-                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
                                     'md': 4
                                 },
                                 'content': [
@@ -715,6 +639,11 @@ class BrushFlowLowFreq(_PluginBase):
                         'component': 'VWindow',
                         'props': {
                             'model': '_tabs'
+                            # VWindow设置paddnig会导致切换Tab时页面高度变动，调整为修改VRow的方案
+                            # 'style': {
+                            #     'padding-top': '24px',
+                            #     'padding-bottom': '24px',
+                            # },
                         },
                         'content': [
                             {
@@ -787,7 +716,6 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VRow',
                                         'content': [
-
                                             {
                                                 'component': 'VCol',
                                                 'props': {
@@ -1416,6 +1344,87 @@ class BrushFlowLowFreq(_PluginBase):
                                                 ]
                                             }
                                         ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'props': {
+                            'style': {
+                                'margin-top': '12px'
+                            },
+                        },
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'success',
+                                            'variant': 'tonal'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'text': '部分配置项以及细节请参考：'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'warning',
+                                            'variant': 'tonal',
+                                            'text': '注意：启用官方刷流插件时，本插件无法正常使用，可尝试停用官方插件后通过双向同步官方数据再开启使用，请不要同时启用两个插件，否则可能导致种子异常甚至数据丢失！'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'error',
+                                            'variant': 'tonal',
+                                            'text': '注意：排除H&R并不保证能完全适配所有站点（部分站点在列表页不显示H&R标志，但实际上是有H&R的），请注意核对使用！'
+                                        }
                                     }
                                 ]
                             }
