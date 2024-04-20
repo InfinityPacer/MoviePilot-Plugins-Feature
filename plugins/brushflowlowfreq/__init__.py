@@ -281,6 +281,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 退出事件
     _event = Event()
     _scheduler = None
+    _tabs = None
 
     # endregion
 
@@ -295,6 +296,8 @@ class BrushFlowLowFreq(_PluginBase):
         if not config:
             logger.info("站点刷流任务出错，无法获取插件配置")
             return False
+
+        self._tabs = config.get("_tabs", None)
 
         # 如果配置校验没有通过，那么这里修改配置文件后退出
         if not self.__validate_and_fix_config(config=config):
@@ -604,8 +607,8 @@ class BrushFlowLowFreq(_PluginBase):
                                 'margin-top': '8px',
                                 'margin-bottom': '16px'
                             },
-                            'stacked': '',
-                            'fixed-tabs': ''
+                            'stacked': True,
+                            'fixed-tabs': True
                         },
                         'content': [
                             {
@@ -3093,7 +3096,8 @@ class BrushFlowLowFreq(_PluginBase):
             "qb_category": brush_config.qb_category,
             "auto_qb_category": brush_config.auto_qb_category,
             "enable_site_config": brush_config.enable_site_config,
-            "site_config": brush_config.site_config
+            "site_config": brush_config.site_config,
+            "_tabs": self._tabs
         }
 
         # 使用update_config方法或其等效方法更新配置

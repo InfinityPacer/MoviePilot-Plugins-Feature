@@ -58,16 +58,14 @@ class PluginReload(_PluginBase):
         # 已安装插件
         local_plugins = PluginManager().get_local_plugins()
         # 遍历 local_plugins，生成插件类型选项
-        plugin_options = [{
-            "title": "",
-            "value": None
-        }]
+        plugin_options = []
 
         for index, local_plugin in enumerate(local_plugins, start=1):
             plugin_options.append({
                 "title": f"{index}. {local_plugin.plugin_name} v{local_plugin.plugin_version}",
                 "value": local_plugin.id
             })
+            
         return [
             {
                 'component': 'VForm',
@@ -88,7 +86,8 @@ class PluginReload(_PluginBase):
                                             'multiple': False,
                                             'model': 'plugin_id',
                                             'label': '插件重载',
-                                            'items': plugin_options
+                                            'items': plugin_options,
+                                            "clearable": True
                                         }
                                     }
                                 ]
