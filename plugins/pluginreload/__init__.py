@@ -14,7 +14,7 @@ class PluginReload(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reload.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -38,8 +38,8 @@ class PluginReload(_PluginBase):
                 self.__update_config()
                 return
 
-            self.__reload(plugin_id=self._plugin_id)
             self.__update_config()
+            self.__reload(plugin_id=self._plugin_id)
 
     def get_state(self):
         pass
@@ -64,11 +64,10 @@ class PluginReload(_PluginBase):
         }]
 
         for index, local_plugin in enumerate(local_plugins, start=1):
-            if local_plugin.id != "PluginReload":
-                plugin_options.append({
-                    "title": f"{index}. {local_plugin.plugin_name} v{local_plugin.plugin_version}",
-                    "value": local_plugin.id
-                })
+            plugin_options.append({
+                "title": f"{index}. {local_plugin.plugin_name} v{local_plugin.plugin_version}",
+                "value": local_plugin.id
+            })
         return [
             {
                 'component': 'VForm',
@@ -79,7 +78,8 @@ class PluginReload(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 8
+                                    'cols': 12,
+                                    'md': 8
                                 },
                                 'content': [
                                     {
@@ -96,7 +96,8 @@ class PluginReload(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 4
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -124,7 +125,7 @@ class PluginReload(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '请选择已安装的本地插件热重载，保存后对应插件将会在内存中重新加载'
+                                            'text': '请选择已安装的本地插件，保存后对应插件将会在内存中重新加载'
                                         }
                                     }
                                 ]
@@ -173,11 +174,10 @@ class PluginReload(_PluginBase):
         """
         更新配置
         """
-        config_mapping = {
-            "previous_state": self._previous_state
-        }
-        if self._previous_state:
-            config_mapping["plugin_id"] = self._plugin_id
+        config_mapping = {}
+        if self._plugin_id != "PluginReload":
+            config_mapping['previous_state'] = self._previous_state
+            if self._previous_state:
+                config_mapping["plugin_id"] = self._plugin_id
 
-        # 使用update_config方法或其等效方法更新配置
         self.update_config(config_mapping)
