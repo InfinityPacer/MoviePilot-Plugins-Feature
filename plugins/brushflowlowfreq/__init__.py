@@ -281,6 +281,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 退出事件
     _event = Event()
     _scheduler = None
+    # tabs
     _tabs = None
 
     # endregion

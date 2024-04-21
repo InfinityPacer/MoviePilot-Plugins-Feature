@@ -1,6 +1,7 @@
 import threading
 import time
 from datetime import datetime, timedelta
+from threading import Event
 from typing import Any, List, Dict, Tuple, Optional, Union
 
 import pytz
@@ -69,6 +70,9 @@ class BrushManager(_PluginBase):
     _brush_tag = "刷流"
     # 整理Tag
     _organize_tag = "已整理"
+    # 退出事件
+    _event = Event()
+    _scheduler = None
 
     # endregion
 
@@ -443,7 +447,16 @@ class BrushManager(_PluginBase):
         """
         退出插件
         """
-        pass
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._event.set()
+                    self._scheduler.shutdown()
+                    self._event.clear()
+                self._scheduler = None
+        except Exception as e:
+            print(str(e))
 
     def __update_config(self, config: dict):
         """
