@@ -2,6 +2,7 @@ import threading
 import time
 from typing import Any, List, Dict, Tuple, Optional, Union
 
+from app.chain.transfer import TransferChain
 from app.core.config import settings
 from app.core.plugin import PluginManager
 from app.log import logger
@@ -22,7 +23,7 @@ class BrushManager(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/brushmanager.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -488,9 +489,17 @@ class BrushManager(_PluginBase):
 
             if self._downloader == "qbittorrent":
                 self.__organize_for_qb(torrent_hash_titles=torrent_hash_titles, torrent_datas=torrent_datas)
-                jobid = self.__get_check_job_id()
-                if jobid:
-                    Scheduler().start(jobid)
+
+                # 开启移除刷流标签，则调用刷流插件的Check任务
+                if self._remove_brush_tag:
+                    jobid = self.__get_check_job_id()
+                    if jobid:
+                        Scheduler().start(jobid)
+
+                # 开启添加MP标签，则调用下载文件整理服务
+                if self._mp_tag:
+                    TransferChain().process()
+
             else:
                 logger.warn("当前只支持qbittorrent")
 
