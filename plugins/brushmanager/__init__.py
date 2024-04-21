@@ -1,10 +1,16 @@
+import threading
+import time
 from typing import Any, List, Dict, Tuple, Optional, Union
 
+from app.core.config import settings
 from app.core.plugin import PluginManager
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
+from app.schemas import NotificationType
+
+lock = threading.Lock()
 
 
 class BrushManager(_PluginBase):
@@ -51,6 +57,12 @@ class BrushManager(_PluginBase):
     _mp_tag = None
     # 移除刷流标签
     _remove_brush_tag = None
+    # 选择的种子
+    _torrent_hashes = None
+    # 刷流标签
+    _brush_tag = "刷流"
+    # 整理Tag
+    _organize_tag = "已整理"
 
     # endregion
 
@@ -71,6 +83,7 @@ class BrushManager(_PluginBase):
         self._auto_category = config.get("auto_category", False)
         self._mp_tag = config.get("mp_tag", False)
         self._remove_brush_tag = config.get("remove_brush_tag", False)
+        self._torrent_hashes = config.get("torrents", None)
 
         self.__update_config(config=config)
 
@@ -81,8 +94,14 @@ class BrushManager(_PluginBase):
             self.__log_and_notify_error("没有配置下载器")
             return
 
+        if self._downloader != "qbittorrent":
+            logger.warn("当前只支持qbittorrent")
+            return
+
         if not self.__setup_downloader():
             return
+
+        self.__organize()
 
     def get_state(self):
         pass
@@ -100,8 +119,8 @@ class BrushManager(_PluginBase):
         """
         # 已安装的刷流插件
         plugin_options = self.__get_plugin_options()
-        path_options = self.__get_display_options(self._source_categories)
-        category_options = self.__get_display_options(self._source_paths)
+        category_options = self.__get_display_options(self._source_categories)
+        path_options = self.__get_display_options(self._source_paths)
         torrent_options = self.__get_torrent_options()
 
         return [
@@ -190,7 +209,7 @@ class BrushManager(_PluginBase):
                                                             'label': '下载器',
                                                             'items': [
                                                                 {'title': 'Qbittorrent', 'value': 'qbittorrent'},
-                                                                {'title': 'Transmission', 'value': 'transmission'}
+                                                                # {'title': 'Transmission', 'value': 'transmission'}
                                                             ]
                                                         }
                                                     }
@@ -433,7 +452,151 @@ class BrushManager(_PluginBase):
         # 使用 filtered_config 进行配置更新
         self.update_config(filtered_config)
 
+    def __organize(self):
+        """
+        整理选择的种子进行入库操作
+        """
+        with lock:
+            logger.info("开始准备整理入库任务 ...")
+            if not self._torrent_hashes:
+                logger.info("没有选择任何种子，取消整理")
+                return
+
+            downloader = self.__get_downloader()
+            if not downloader:
+                self.__log_and_notify_error("连接下载器出错，请检查连接")
+                return
+
+            torrents, error = downloader.get_torrents(ids=self._torrent_hashes)
+            if error:
+                self.__log_and_notify_error("连接下载器出错，请检查连接")
+                return
+
+            if not torrents:
+                self.__log_and_notify_error("在下载器中没有获取到对应的种子，请检查刷流任务，"
+                                            "可尝试开启刷流插件的「下载器监控」同步种子状态")
+
+            logger.info(f"当前选择的种子数量为 {len(self._torrent_hashes)}，"
+                        f"实际在下载器中获取到的种子数量为 {len(torrents)}")
+
+            torrent_hash_titles = self.__get_all_hashes_and_titles(torrents)
+
+            logger.info(f"准备为 {len(torrent_hash_titles)} 个种子进行整理任务，种子详情为 {torrent_hash_titles}")
+
+            torrent_datas = self.__get_all_hashes_and_torrents(torrents)
+
+            if self._downloader == "qbittorrent":
+                self.__organize_for_qb(torrent_hash_titles=torrent_hash_titles, torrent_datas=torrent_datas)
+            else:
+                logger.warn("当前只支持qbittorrent")
+
+    def __organize_for_qb(self, torrent_hash_titles: dict, torrent_datas):
+        """针对QB进行种子整理"""
+        # 获取下载器实例
+        downloader = self.__get_downloader()
+
+        # 初始化成功和失败的计数器和列表
+        success_count = 0
+        failed_count = 0
+        success_titles = []
+        failed_titles = []
+
+        # 遍历所有种子
+        for torrent_hash, torrent_title in torrent_hash_titles.items():
+            success = True
+
+            if self._remove_brush_tag:
+                try:
+                    logger.info(f"正在为种子「{torrent_title}」[{torrent_hash}] 移除「{self._brush_tag}」标签")
+                    remove_result = downloader.remove_torrents_tag(ids=[torrent_hash], tag=self._brush_tag)
+                    if not remove_result:
+                        raise Exception(f"「{self._brush_tag}」标签移除失败，请检查下载器连接")
+                    logger.info(f"标签移除成功 - {torrent_hash}")
+                except Exception as e:
+                    logger.error(f"移除标签失败，种子哈希：{torrent_hash}，错误：{str(e)}")
+                    success = False
+
+            if self._mp_tag and success:
+                try:
+                    logger.info(f"正在为种子「{torrent_title}」[{torrent_hash}] "
+                                f"添加「{settings.TORRENT_TAG}」标签并移除「{self._organize_tag}」标签")
+                    remove_result = downloader.remove_torrents_tag(ids=[torrent_hash], tag=self._organize_tag)
+                    if not remove_result:
+                        raise Exception(f"「{self._organize_tag}」标签移除失败，请检查下载器连接")
+                    downloader.set_torrents_tag(ids=[torrent_hash], tags=[settings.TORRENT_TAG])
+                    logger.info(f"标签添加成功 - {torrent_hash}")
+                except Exception as e:
+                    logger.error(f"设置标签失败，种子哈希：{torrent_hash}，错误：{str(e)}")
+                    success = False
+
+            if self._category and success:
+                try:
+                    logger.info(f"正在为种子「{torrent_title}」[{torrent_hash}] 设置「{self._category}」分类")
+                    try:
+                        downloader.qbc.torrents_set_category(torrent_hashes=torrent_hash, category=self._category)
+                    except Exception as e:
+                        logger.warn(f"种子 「{torrent_title}」[{torrent_hash}] "
+                                    f"设置分类 {self._category} 失败：{str(e)}, 尝试创建分类再设置")
+                        downloader.qbc.torrents_create_category(name=self._category, save_path=self._move_path)
+                        downloader.qbc.torrents_set_category(torrent_hashes=torrent_hash, category=self._category)
+                    logger.info(f"分类设置成功 - {torrent_hash}")
+                except Exception as e:
+                    logger.error(f"设置分类失败，种子哈希：{torrent_hash}，错误：{str(e)}")
+                    success = False
+
+            # qb中的自动分类管理和目录为二选一的逻辑
+            if success:
+                if self._auto_category:
+                    try:
+                        logger.info(f"正在为种子「{torrent_title}」[{torrent_hash}] 开启自动分类管理")
+                        downloader.qbc.torrents_set_auto_management(torrent_hashes=torrent_hash,
+                                                                    enable=self._auto_category)
+                        logger.info(f"自动分类管理开启成功 - {torrent_hash}")
+                    except Exception as e:
+                        logger.error(f"自动分类管理开启失败，种子哈希：{torrent_hash}，错误：{str(e)}")
+                        success = False
+                else:
+                    if self._move_path:
+                        try:
+                            logger.info(f"正在为种子「{torrent_title}」[{torrent_hash}] 关闭自动分类管理")
+                            downloader.qbc.torrents_set_auto_management(torrent_hashes=torrent_hash,
+                                                                        enable=self._auto_category)
+                            logger.info(f"自动分类管理关闭成功 - {torrent_hash}")
+                        except Exception as e:
+                            logger.error(f"自动分类管理关闭失败，种子哈希：{torrent_hash}，错误：{str(e)}")
+                        try:
+                            logger.info(f"正在为种子「{torrent_title}」[{torrent_hash}] 修改保存路径 {self._move_path}")
+                            downloader.qbc.torrents_set_location(torrent_hashes=torrent_hash, location=self._move_path)
+                            logger.info(f"修改保存路径成功 - {torrent_hash}")
+                        except Exception as e:
+                            logger.error(f"修改保存路径失败，种子哈希：{torrent_hash}，错误：{str(e)}")
+                            success = False
+
+            # 更新成功或失败的计数器和列表
+            if success:
+                logger.info(f"「{torrent_title}」[{torrent_hash}] 操作完成，请等待后续入库")
+                success_count += 1
+                success_titles.append(torrent_title)
+            else:
+                logger.error(f"「{torrent_title}」[{torrent_hash}] 操作失败，请检查日志调整")
+                failed_count += 1
+                failed_titles.append(torrent_title)
+
+        # 构建简要的汇总消息
+        summary_message_parts = []
+        if success_count > 0:
+            success_details = "\n".join(success_titles)  # 使用换行符而不是逗号分隔种子标题
+            summary_message_parts.append(f"成功操作 {success_count} 个种子，请等待后续入库\n{success_details}")
+        if failed_count > 0:
+            failed_details = "\n".join(failed_titles)  # 使用换行符而不是逗号分隔种子标题
+            summary_message_parts.append(f"失败操作 {failed_count} 个种子，详细详细请查看日志\n{failed_details}")
+
+        summary_message = "\n\n".join(summary_message_parts)  # 使用两个换行符分隔成功和失败的部分
+
+        self.__send_message(title="【刷流种子整理详情】", text=summary_message)
+
     def __get_torrent_options(self) -> List[dict]:
+        """获取种子选项列表"""
         # 检查刷流插件是否已选择
         if not self._brush_plugin:
             logger.info("刷流插件尚未选择，无法获取到刷流任务")
@@ -477,7 +640,8 @@ class BrushManager(_PluginBase):
         return torrent_options
 
     def __get_plugin_options(self) -> List[dict]:
-        # 获取正在运行的插件选项
+        """获取插件选项列表"""
+        # 获取运行的插件选项
         running_plugins = self.pluginmanager.get_running_plugin_ids()
 
         # 需要检查的插件名称
@@ -506,6 +670,7 @@ class BrushManager(_PluginBase):
 
     @staticmethod
     def __get_display_options(source: str) -> List[dict]:
+        """根据源数据获取显示的选项列表"""
         # 检查是否有可用的源数据
         if not source:
             return []
@@ -561,6 +726,224 @@ class BrushManager(_PluginBase):
             return self.tr
         else:
             return None
+
+    def __get_all_hashes_and_torrents(self, torrents):
+        """
+        获取torrents列表中所有种子的Hash值和对应的种子对象，存储在一个字典中
+
+        :param torrents: 包含种子信息的列表
+        :return: 一个字典，其中键是种子的Hash值，值是对应的种子对象
+        """
+        try:
+            all_hashes_torrents = {}
+            for torrent in torrents:
+                # 根据下载器类型获取Hash值
+                if self._downloader == "qbittorrent":
+                    hash_value = torrent.get("hash")
+                else:
+                    hash_value = torrent.hashString
+
+                if hash_value:
+                    all_hashes_torrents[hash_value] = torrent  # 直接将torrent对象存储为字典的值
+            return all_hashes_torrents
+        except Exception as e:
+            logger.error(f"get_all_hashes_and_torrents error: {e}")
+            return {}
+
+    def __get_all_hashes_and_titles(self, torrents):
+        """
+        获取torrents列表中所有种子的Hash值和标题，存储在一个字典中
+
+        :param torrents: 包含种子信息的列表
+        :return: 一个字典，其中键是种子的Hash值，值是种子的标题
+        """
+        try:
+            all_hashes_titles = {}
+            for torrent in torrents:
+                # 根据下载器类型获取Hash值和标题
+                if self._downloader == "qbittorrent":
+                    hash_value = torrent.get("hash")
+                    torrent_title = torrent.get("name")
+                else:
+                    hash_value = torrent.hashString
+                    torrent_title = torrent.name
+
+                if hash_value and torrent_title:
+                    all_hashes_titles[hash_value] = torrent_title
+            return all_hashes_titles
+        except Exception as e:
+            logger.error(f"get_all_hashes_and_titles error: {e}")
+            return {}
+
+    def __get_torrent_info(self, torrent: Any) -> dict:
+        """
+        获取种子信息
+        """
+        date_now = int(time.time())
+        # QB
+        if self._downloader == "qbittorrent":
+            """
+            {
+              "added_on": 1693359031,
+              "amount_left": 0,
+              "auto_tmm": false,
+              "availability": -1,
+              "category": "tJU",
+              "completed": 67759229411,
+              "completion_on": 1693609350,
+              "content_path": "/mnt/sdb/qb/downloads/Steel.Division.2.Men.of.Steel-RUNE",
+              "dl_limit": -1,
+              "dlspeed": 0,
+              "download_path": "",
+              "downloaded": 67767365851,
+              "downloaded_session": 0,
+              "eta": 8640000,
+              "f_l_piece_prio": false,
+              "force_start": false,
+              "hash": "116bc6f3efa6f3b21a06ce8f1cc71875",
+              "infohash_v1": "116bc6f306c40e072bde8f1cc71875",
+              "infohash_v2": "",
+              "last_activity": 1693609350,
+              "magnet_uri": "magnet:?xt=",
+              "max_ratio": -1,
+              "max_seeding_time": -1,
+              "name": "Steel.Division.2.Men.of.Steel-RUNE",
+              "num_complete": 1,
+              "num_incomplete": 0,
+              "num_leechs": 0,
+              "num_seeds": 0,
+              "priority": 0,
+              "progress": 1,
+              "ratio": 0,
+              "ratio_limit": -2,
+              "save_path": "/mnt/sdb/qb/downloads",
+              "seeding_time": 615035,
+              "seeding_time_limit": -2,
+              "seen_complete": 1693609350,
+              "seq_dl": false,
+              "size": 67759229411,
+              "state": "stalledUP",
+              "super_seeding": false,
+              "tags": "",
+              "time_active": 865354,
+              "total_size": 67759229411,
+              "tracker": "https://tracker",
+              "trackers_count": 2,
+              "up_limit": -1,
+              "uploaded": 0,
+              "uploaded_session": 0,
+              "upspeed": 0
+            }
+            """
+            # ID
+            torrent_id = torrent.get("hash")
+            # 标题
+            torrent_title = torrent.get("name")
+            # 下载时间
+            if not torrent.get("added_on") or torrent.get("added_on") < 0:
+                dltime = 0
+            else:
+                dltime = date_now - torrent.get("added_on")
+            # 做种时间
+            if not torrent.get("completion_on") or torrent.get("completion_on") < 0:
+                seeding_time = 0
+            else:
+                seeding_time = date_now - torrent.get("completion_on")
+            # 分享率
+            ratio = torrent.get("ratio") or 0
+            # 上传量
+            uploaded = torrent.get("uploaded") or 0
+            # 平均上传速度 Byte/s
+            if dltime:
+                avg_upspeed = int(uploaded / dltime)
+            else:
+                avg_upspeed = uploaded
+            # 已未活动 秒
+            if not torrent.get("last_activity") or torrent.get("last_activity") < 0:
+                iatime = 0
+            else:
+                iatime = date_now - torrent.get("last_activity")
+            # 下载量
+            downloaded = torrent.get("downloaded")
+            # 种子大小
+            total_size = torrent.get("total_size")
+            # 添加时间
+            add_on = (torrent.get("added_on") or 0)
+            add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(add_on))
+            # 种子标签
+            tags = torrent.get("tags")
+            # tracker
+            tracker = torrent.get("tracker")
+        # TR
+        else:
+            # ID
+            torrent_id = torrent.hashString
+            # 标题
+            torrent_title = torrent.name
+            # 做种时间
+            if (not torrent.date_done
+                    or torrent.date_done.timestamp() < 1):
+                seeding_time = 0
+            else:
+                seeding_time = date_now - int(torrent.date_done.timestamp())
+            # 下载耗时
+            if (not torrent.date_added
+                    or torrent.date_added.timestamp() < 1):
+                dltime = 0
+            else:
+                dltime = date_now - int(torrent.date_added.timestamp())
+            # 下载量
+            downloaded = int(torrent.total_size * torrent.progress / 100)
+            # 分享率
+            ratio = torrent.ratio or 0
+            # 上传量
+            uploaded = int(downloaded * torrent.ratio)
+            # 平均上传速度
+            if dltime:
+                avg_upspeed = int(uploaded / dltime)
+            else:
+                avg_upspeed = uploaded
+            # 未活动时间
+            if (not torrent.date_active
+                    or torrent.date_active.timestamp() < 1):
+                iatime = 0
+            else:
+                iatime = date_now - int(torrent.date_active.timestamp())
+            # 种子大小
+            total_size = torrent.total_size
+            # 添加时间
+            add_on = (torrent.date_added.timestamp() if torrent.date_added else 0)
+            add_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(add_on))
+            # 种子标签
+            tags = torrent.get("tags")
+            # tracker
+            tracker = torrent.get("tracker")
+
+        return {
+            "hash": torrent_id,
+            "title": torrent_title,
+            "seeding_time": seeding_time,
+            "ratio": ratio,
+            "uploaded": uploaded,
+            "downloaded": downloaded,
+            "avg_upspeed": avg_upspeed,
+            "iatime": iatime,
+            "dltime": dltime,
+            "total_size": total_size,
+            "add_time": add_time,
+            "add_on": add_on,
+            "tags": tags,
+            "tracker": tracker
+        }
+
+    def __send_message(self, title: str, text: str):
+        """
+        发送消息
+        """
+        if not self._notify:
+            return
+
+        self.post_message(mtype=NotificationType.SiteMessage, title=title, text=text)
 
     def __log_and_notify_error(self, message):
         """
