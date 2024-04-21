@@ -22,7 +22,7 @@ class BrushManager(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/brushmanager.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -950,7 +950,7 @@ class BrushManager(_PluginBase):
         self.post_message(mtype=NotificationType.SiteMessage, title=title, text=text)
 
     def __get_check_job_id(self):
-        if not self._brush_plugin:
+        if self._brush_plugin:
             return "BrushFlowLowFreqCheck" if self._brush_plugin == "BrushFlowLowFreq" else "BrushFlowCheck"
         return None
 
