@@ -8,6 +8,7 @@ from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.plugins import _PluginBase
+from app.scheduler import Scheduler
 from app.schemas import NotificationType
 
 lock = threading.Lock()
@@ -487,6 +488,9 @@ class BrushManager(_PluginBase):
 
             if self._downloader == "qbittorrent":
                 self.__organize_for_qb(torrent_hash_titles=torrent_hash_titles, torrent_datas=torrent_datas)
+                jobid = self.__get_check_job_id()
+                if jobid:
+                    Scheduler().start(jobid)
             else:
                 logger.warn("当前只支持qbittorrent")
 
@@ -944,6 +948,11 @@ class BrushManager(_PluginBase):
             return
 
         self.post_message(mtype=NotificationType.SiteMessage, title=title, text=text)
+
+    def __get_check_job_id(self):
+        if not self._brush_plugin:
+            return "BrushFlowLowFreqCheck" if self._brush_plugin == "BrushFlowLowFreq" else "BrushFlowCheck"
+        return None
 
     def __log_and_notify_error(self, message):
         """
