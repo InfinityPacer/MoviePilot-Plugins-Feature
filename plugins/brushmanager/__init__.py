@@ -1,6 +1,10 @@
 import threading
 import time
+from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple, Optional, Union
+
+import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.chain.transfer import TransferChain
 from app.core.config import settings
@@ -489,17 +493,7 @@ class BrushManager(_PluginBase):
 
             if self._downloader == "qbittorrent":
                 self.__organize_for_qb(torrent_hash_titles=torrent_hash_titles, torrent_datas=torrent_datas)
-
-                # 开启移除刷流标签，则调用刷流插件的Check任务
-                if self._remove_brush_tag:
-                    jobid = self.__get_check_job_id()
-                    if jobid:
-                        Scheduler().start(jobid)
-
-                # 开启添加MP标签，则调用下载文件整理服务
-                if self._mp_tag:
-                    TransferChain().process()
-
+                self.__run_after_organize()
             else:
                 logger.warn("当前只支持qbittorrent")
 
@@ -962,6 +956,38 @@ class BrushManager(_PluginBase):
         if self._brush_plugin:
             return "BrushFlowLowFreqCheck" if self._brush_plugin == "BrushFlowLowFreq" else "BrushFlowCheck"
         return None
+
+    def __run_after_organize(self):
+        """整理后执行相关任务"""
+        self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+
+        # 开启移除刷流标签，则调用刷流插件的Check任务
+        if self._remove_brush_tag:
+            logger.info(f"已开启移除刷流标签，调用站点刷流Check服务")
+            jobid = self.__get_check_job_id()
+            if jobid:
+                self._scheduler.add_job(lambda: Scheduler().start(jobid), 'date',
+                                        run_date=datetime.now(
+                                            tz=pytz.timezone(settings.TZ)
+                                        ) + timedelta(seconds=3),
+                                        name="站点刷流Check服务 by 刷流种子整理)")
+
+        # 开启添加MP标签，则调用下载文件整理服务
+        if self._mp_tag:
+            logger.info(f"已开启添加MP标签，调用下载文件整理服务")
+            jobid = self.__get_check_job_id()
+            if jobid:
+                self._scheduler.add_job(lambda: TransferChain().process(), 'date',
+                                        run_date=datetime.now(
+                                            tz=pytz.timezone(settings.TZ)
+                                        ) + timedelta(seconds=3),
+                                        name="下载文件整理 by 刷流种子整理")
+
+        # 存在任务则启动任务
+        if self._scheduler.get_jobs():
+            # 启动服务
+            self._scheduler.print_jobs()
+            self._scheduler.start()
 
     def __log_and_notify_error(self, message):
         """
