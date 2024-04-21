@@ -185,7 +185,7 @@ class BrushManager(_PluginBase):
                                                 },
                                                 'content': [
                                                     {
-                                                        'component': 'VSelect',
+                                                        'component': 'VAutocomplete',
                                                         'props': {
                                                             'chips': True,
                                                             'multiple': True,
