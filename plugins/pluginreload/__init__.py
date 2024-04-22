@@ -56,14 +56,21 @@ class PluginReload(_PluginBase):
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
         plugin_manager = PluginManager()
+        # 获取本地所有插件的列表
         local_plugins = plugin_manager.get_local_plugins()
+
+        # 获取正在运行的插件的ID集合
         running_plugins = set(plugin_manager.get_running_plugin_ids())
+
+        # 从本地插件列表中筛选出正在运行的插件
         filtered_plugins = [plugin for plugin in local_plugins if plugin.id in running_plugins]
+
+        # 为每个正在运行的插件创建一个包含其信息的字典，并进行编号
         plugin_options = [{
-            "title": f"{index}. {plugin.plugin_name} v{plugin.plugin_version}",
-            "value": plugin.id,
-            "name": plugin.plugin_name
-        } for index, plugin in enumerate(filtered_plugins, start=1)]
+            "title": f"{index}. {plugin.plugin_name} v{plugin.plugin_version}",  # 创建插件的标题，包含编号、名称和版本
+            "value": plugin.id,  # 插件的ID
+            "name": plugin.plugin_name  # 插件的名称
+        } for index, plugin in enumerate(filtered_plugins, start=1)]  # 使用enumerate为每个插件添加从1开始的索引编号
 
         return [
             {
