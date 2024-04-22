@@ -55,17 +55,16 @@ class PluginReload(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        # 已安装插件
-        local_plugins = PluginManager().get_local_plugins()
-        # 遍历 local_plugins，生成插件类型选项
-        plugin_options = []
+        plugin_manager = PluginManager()
+        local_plugins = plugin_manager.get_local_plugins()
+        running_plugins = set(plugin_manager.get_running_plugin_ids())
+        filtered_plugins = [plugin for plugin in local_plugins if plugin.id in running_plugins]
+        plugin_options = [{
+            "title": f"{index}. {plugin.plugin_name} v{plugin.plugin_version}",
+            "value": plugin.id,
+            "name": plugin.plugin_name
+        } for index, plugin in enumerate(filtered_plugins, start=1)]
 
-        for index, local_plugin in enumerate(local_plugins, start=1):
-            plugin_options.append({
-                "title": f"{index}. {local_plugin.plugin_name} v{local_plugin.plugin_version}",
-                "value": local_plugin.id
-            })
-            
         return [
             {
                 'component': 'VForm',
