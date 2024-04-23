@@ -22,7 +22,7 @@ class PlexRefreshRecent(_PluginBase):
     # 插件描述
     plugin_desc = "定时通知Plex刷新最近入库元数据。"
     # 插件图标
-    plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexrefreshrecent.png"
+    plugin_icon = "Plex_A.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者
