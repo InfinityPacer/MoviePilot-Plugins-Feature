@@ -40,5 +40,16 @@
             "v1.1": "刷流种子整理后，调用刷流插件Check服务",
             "v1.0": "增加刷流种子整理插件，针对刷流种子进行整理操作"
         }
+    },
+    "PlexRefreshRecent": {
+        "name": "刷新Plex元数据",
+        "description": "定时通知Plex刷新最近入库元数据。",
+        "version": "1.0",
+        "icon": "Plex_A.png",
+        "author": "InfinityPacer",
+        "level": 1,
+        "history": {
+            "v1.0": "增加刷新Plex元数据插件，定时通知Plex刷新最近入库元数据"
+        }
     }
 }

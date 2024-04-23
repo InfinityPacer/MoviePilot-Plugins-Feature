@@ -72,6 +72,7 @@ class BrushManager(_PluginBase):
     _organize_tag = "已整理"
     # 退出事件
     _event = Event()
+    # 定时器
     _scheduler = None
 
     # endregion
