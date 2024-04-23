@@ -58,19 +58,14 @@ class PluginReload(_PluginBase):
         plugin_manager = PluginManager()
         # 获取本地所有插件的列表
         local_plugins = plugin_manager.get_local_plugins()
+        # 遍历 local_plugins，生成插件类型选项
+        plugin_options = []
 
-        # 获取正在运行的插件的ID集合
-        running_plugins = set(plugin_manager.get_running_plugin_ids())
-
-        # 从本地插件列表中筛选出正在运行的插件
-        filtered_plugins = [plugin for plugin in local_plugins if plugin.id in running_plugins]
-
-        # 为每个正在运行的插件创建一个包含其信息的字典，并进行编号
-        plugin_options = [{
-            "title": f"{index}. {plugin.plugin_name} v{plugin.plugin_version}",  # 创建插件的标题，包含编号、名称和版本
-            "value": plugin.id,  # 插件的ID
-            "name": plugin.plugin_name  # 插件的名称
-        } for index, plugin in enumerate(filtered_plugins, start=1)]  # 使用enumerate为每个插件添加从1开始的索引编号
+        for index, local_plugin in enumerate(local_plugins, start=1):
+            plugin_options.append({
+                "title": f"{index}. {local_plugin.plugin_name} v{local_plugin.plugin_version}",
+                "value": local_plugin.id
+            })
 
         return [
             {
@@ -87,7 +82,7 @@ class PluginReload(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSelect',
+                                        'component': 'VAutocomplete',
                                         'props': {
                                             'multiple': False,
                                             'model': 'plugin_id',
@@ -155,25 +150,25 @@ class PluginReload(_PluginBase):
 
     @staticmethod
     def __reload(plugin_id: str):
-        logger.info(f"Starting reload process for plugin: {plugin_id}")
+        logger.info(f"准备热加载插件: {plugin_id}")
 
         # 加载插件到内存
         try:
             PluginManager().reload_plugin(plugin_id)
-            logger.info(f"Successfully loaded plugin: {plugin_id} into memory")
+            logger.info(f"成功热加载插件: {plugin_id} 到内存")
         except Exception as e:
-            logger.error(f"Failed to load plugin: {plugin_id} into memory. Error: {e}")
+            logger.error(f"失败热加载插件: {plugin_id} 到内存. 错误信息: {e}")
             return
 
         # 注册插件服务
         try:
             Scheduler().update_plugin_job(plugin_id)
-            logger.info(f"Successfully updated job schedule for plugin: {plugin_id}")
+            logger.info(f"成功热加载插件到插件服务: {plugin_id}")
         except Exception as e:
-            logger.error(f"Failed to update job schedule for plugin: {plugin_id}. Error: {e}")
+            logger.error(f"失败热加载插件到插件服务: {plugin_id}. 错误信息: {e}")
             return
 
-        logger.info(f"Completed reload process for plugin: {plugin_id}")
+        logger.info(f"已完成插件热加载: {plugin_id}")
 
     def __update_config(self):
         """

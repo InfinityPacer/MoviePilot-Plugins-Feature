@@ -17,11 +17,12 @@
     "PluginReload": {
         "name": "插件热重载",
         "description": "支持插件热重载，用于Docker调试。",
-        "version": "1.2",
+        "version": "1.3",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reload.png",
         "author": "InfinityPacer",
         "level": 1,
         "history": {
+            "v1.3": "部分场景下，插件可能实例化失败，调整加载本地插件",
             "v1.2": "优化了一些细节问题",
             "v1.1": "优化了一些细节问题",
             "v1.0": "增加热重载插件，用于Docker调试"
