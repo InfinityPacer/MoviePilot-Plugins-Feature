@@ -307,3 +307,9 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 ![](images/2024-04-24-02-45-08.png)
 ![](images/2024-04-24-02-45-38.png)
+
+### 6. WebDAV备份
+
+- 定时通过WebDAV备份数据库和配置文件。
+
+![](images/2024-04-25-05-07-25.png)
