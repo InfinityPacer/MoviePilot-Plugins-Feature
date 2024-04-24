@@ -120,6 +120,8 @@ class WebDAVBackup(_PluginBase):
                 name="WebDAV备份",
             )
             self._onlyonce = False
+            config["onlyonce"] = False
+            self.update_config(config=config)
 
         # 启动任务
         if self._scheduler.get_jobs():
