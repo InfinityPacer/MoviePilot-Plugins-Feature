@@ -51,5 +51,16 @@
         "history": {
             "v1.0": "增加刷新Plex元数据插件，定时通知Plex刷新最近入库元数据"
         }
+    },
+    "WebDAVBackup": {
+        "name": "WebDAV备份",
+        "description": "定时通过WebDAV备份。",
+        "version": "1.0",
+        "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/webdavbackup.png",
+        "author": "InfinityPacer",
+        "level": 1,
+        "history": {
+            "v1.0": "增加WebDAV备份插件，定时通过WebDAV备份"
+        }
     }
 }
