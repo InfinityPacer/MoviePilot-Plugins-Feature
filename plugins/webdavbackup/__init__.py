@@ -8,13 +8,14 @@ from typing import Any, List, Dict, Tuple
 from urllib.parse import urljoin
 
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from webdav3.client import Client
+
 from app.core.config import settings
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import NotificationType
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from webdav3.client import Client
 
 lock = threading.Lock()
 
@@ -27,7 +28,7 @@ class WebDAVBackup(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/webdavbackup.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -94,21 +95,21 @@ class WebDAVBackup(_PluginBase):
         if not self._enabled:
             logger.info("WebDAV备份未启用")
 
-        # 初始化 WebDAV 客户端
-        webdav_config = {
-            'webdav_hostname': self._hostname,
-            'webdav_login': self._login,
-            'webdav_password': self._password,
-            'webdav_digest_auth': self._digest_auth
-        }
-
-        self._client = Client(webdav_config)
         if not self._client:
-            logger.info("WebDAV客户端实例化失败，无法启动备份服务")
-            return
+                # 初始化 WebDAV 客户端
+                webdav_config = {
+                    'webdav_hostname': self._hostname,
+                    'webdav_login': self._login,
+                    'webdav_password': self._password,
+                    'webdav_digest_auth': self._digest_auth
+                }
 
-        if not self.__connect_to_webdav():
-            return
+                self._client = Client(webdav_config)
+                if not self._client:
+                    msg = "WebDAV客户端实例化失败，无法启动备份服务"
+                    self.__notify_user_if_failed(msg)
+                    logger.info(msg)
+                    return
 
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
         if self._onlyonce:
@@ -381,9 +382,12 @@ class WebDAVBackup(_PluginBase):
     def backup(self):
         logger.info("开始执行WebDAV备份")
         try:
+            if not self.__connect_to_webdav():
+                return
+
             file, success = self.__backup_files_to_webdav()
 
-            if self._max_count:
+            if success and self._max_count:
                 self.__clean_old_backups(max_count=self._max_count)
             if success:
                 logger.info(f"WebDAV备份成功, 文件路径: {file}")
@@ -392,21 +396,21 @@ class WebDAVBackup(_PluginBase):
                 msg = "备份失败，请排查日志"
                 logger.info(msg)
             if self._notify:
-                self.__notify_user(msg)
+                self.__notify_user_if_completed(msg)
         except Exception as e:
             msg = f"备份失败，请排查日志，错误：{e}"
             logger.error(msg)
             if self._notify:
-                self.__notify_user(msg)
+                self.__notify_user_if_completed(msg)
 
-    def __backup_files_to_webdav(self) -> [str, bool]:
+    def __backup_files_to_webdav(self) -> Tuple[str, bool]:
         """
         执行备份并上传到WebDAV服务器
         """
         file = self.__backup_and_zip_file()
         if not file:
             logger.error("无法创建备份文件")
-            return None, False
+            return "", False
 
         try:
             # 使用urljoin确保路径正确
@@ -414,7 +418,7 @@ class WebDAVBackup(_PluginBase):
             logger.info(f"远程备份路径为：{remote_file_path}")
 
             self._client.upload_sync(remote_path=os.path.basename(file), local_path=file)
-            return os.path.basename(file), True
+            return remote_file_path, True
         except Exception as e:
             logger.error(f"上传到WebDAV服务器失败: {e}")
             if hasattr(e, 'response'):
@@ -424,7 +428,7 @@ class WebDAVBackup(_PluginBase):
             if os.path.exists(file):
                 logger.info(f"清理本地文件：{file}")
                 os.remove(file)
-        return None, False
+        return "", False
 
     @staticmethod
     def __backup_and_zip_file() -> str:
@@ -472,14 +476,11 @@ class WebDAVBackup(_PluginBase):
         # 清理WebDAV服务器上的旧备份
         try:
             remote_files = self._client.list('/')
-            logger.info(f"remote_files {remote_files}")
             filtered_files = [f for f in remote_files if pattern.match(f)]
-            logger.info(f"filtered_files {filtered_files}")
             sorted_files = sorted(filtered_files,
                                   key=lambda x: datetime.strptime(x,
                                                                   "MoviePliot-Backup-%Y-%m-%d_%H-%M-%S.zip"))
-            logger.info(f"sorted_files {sorted_files}")
-            logger.info(f"sorted_files len {len(sorted_files)}")
+            logger.info(f"WebDAV上备份文件数量 {len(sorted_files)}")
             if len(sorted_files) > max_count:
                 for file_info in sorted_files[:-max_count]:
                     remote_file_path = f"/{file_info}"
@@ -495,15 +496,17 @@ class WebDAVBackup(_PluginBase):
         """尝试连接到WebDAV服务器，并验证连接是否成功。"""
         try:
             # 尝试列出根目录来检查连接
-            files = self._client.list('/')  # 如果不成功，会抛出异常
+            self._client.list('/')  # 如果不成功，会抛出异常
             logger.info("成功连接到WebDAV服务器")
             return True
         except Exception as e:
             self._client = None
-            logger.error(f"连接到WebDAV服务器失败: {e}")
+            msg = f"连接到WebDAV服务器失败: {e}"
+            logger.error(msg)
+            self.__notify_user_if_failed(msg)
             return False
 
-    def __notify_user(self, message):
+    def __notify_user_if_completed(self, message):
         """发送通知到用户，包括当前时间和消息内容"""
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         formatted_message = f"{message}，备份时间：{current_time}"
@@ -511,4 +514,12 @@ class WebDAVBackup(_PluginBase):
             mtype=NotificationType.SiteMessage,
             title="【WebDAV备份完成】",
             text=formatted_message
+        )
+
+    def __notify_user_if_failed(self, message):
+        """发送通知到用户，包括当前时间和消息内容"""
+        self.post_message(
+            mtype=NotificationType.SiteMessage,
+            title="【WebDAV备份失败】",
+            text=message
         )

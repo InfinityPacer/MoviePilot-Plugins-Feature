@@ -55,11 +55,12 @@
     "WebDAVBackup": {
         "name": "WebDAV备份",
         "description": "定时通过WebDAV备份数据库和配置文件。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/webdavbackup.png",
         "author": "InfinityPacer",
         "level": 1,
         "history": {
+            "v1.1": "优化部分逻辑及日志记录",
             "v1.0": "增加WebDAV备份插件，定时通过WebDAV备份数据库和配置文件"
         }
     }
