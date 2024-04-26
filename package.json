@@ -60,6 +60,7 @@
         "author": "InfinityPacer",
         "level": 1,
         "history": {
+            "v1.2": "优化部分逻辑及日志记录",
             "v1.1": "优化部分逻辑及日志记录",
             "v1.0": "增加WebDAV备份插件，定时通过WebDAV备份数据库和配置文件"
         }
