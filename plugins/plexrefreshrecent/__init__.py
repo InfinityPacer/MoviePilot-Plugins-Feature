@@ -3,15 +3,14 @@ from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple
 
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.modules.plex import Plex
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 lock = threading.Lock()
 
@@ -83,8 +82,9 @@ class PlexRefreshRecent(_PluginBase):
                 name="刷新最近入库元数据",
             )
 
-        # 关闭一次性开关
-        self._onlyonce = False
+            # 关闭一次性开关
+            self._onlyonce = False
+
         self.update_config(
             {
                 "onlyonce": False,
@@ -139,6 +139,10 @@ class PlexRefreshRecent(_PluginBase):
             event_data = event.event_data
             if not event_data or event_data.get("action") != "refresh_plex_recent_event":
                 return
+
+        if not settings.MEDIASERVER:
+            logger.info(f"媒体库配置不正确，请检查")
+            return
 
         if "plex" not in settings.MEDIASERVER:
             logger.info(f"Plex配置不正确，请检查")
@@ -354,7 +358,7 @@ class PlexRefreshRecent(_PluginBase):
         services = []
 
         if self._enabled and self._cron:
-            logger.info(f"刷新Plex最近入库元数据服务启动，时间间隔 {self._cron} ")
+            logger.info(f"刷新Plex最近入库元数据定时服务启动，时间间隔 {self._cron} ")
             services.append({
                 "id": "PlexRefreshRecent",
                 "name": "刷新Plex最近入库元数据",
