@@ -28,7 +28,7 @@ class WebDAVBackup(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/webdavbackup.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -81,6 +81,7 @@ class WebDAVBackup(_PluginBase):
         self._cron = config.get("cron")
         self._notify = config.get("notify", False)
         self._onlyonce = config.get("onlyonce", False)
+
         try:
             self._max_count = int(config.get("max_count", 0))
         except ValueError:
@@ -95,21 +96,20 @@ class WebDAVBackup(_PluginBase):
         if not self._enabled:
             logger.info("WebDAV备份未启用")
 
-        if not self._client:
-                # 初始化 WebDAV 客户端
-                webdav_config = {
-                    'webdav_hostname': self._hostname,
-                    'webdav_login': self._login,
-                    'webdav_password': self._password,
-                    'webdav_digest_auth': self._digest_auth
-                }
+        # 初始化 WebDAV 客户端
+        webdav_config = {
+            'webdav_hostname': self._hostname,
+            'webdav_login': self._login,
+            'webdav_password': self._password,
+            'webdav_digest_auth': self._digest_auth
+        }
 
-                self._client = Client(webdav_config)
-                if not self._client:
-                    msg = "WebDAV客户端实例化失败，无法启动备份服务"
-                    self.__notify_user_if_failed(msg)
-                    logger.info(msg)
-                    return
+        self._client = Client(webdav_config)
+        if not self._client:
+            msg = "WebDAV客户端实例化失败，无法启动备份服务"
+            self.__notify_user_if_failed(msg)
+            logger.info(msg)
+            return
 
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
         if self._onlyonce:
@@ -407,28 +407,44 @@ class WebDAVBackup(_PluginBase):
         """
         执行备份并上传到WebDAV服务器
         """
-        file = self.__backup_and_zip_file()
-        if not file:
+        local_file_path = self.__backup_and_zip_file()
+        if not local_file_path:
             logger.error("无法创建备份文件")
             return "", False
 
+        # 初始化外部变量以捕获回调结果
+        result = "", False
+
+        def upload_callback():
+            """上传完成后的回调函数"""
+            nonlocal result
+            # 检查文件是否在WebDAV上存在
+            if self._client.check(file_name):
+                logger.info(f"上传完成，远程备份路径：{remote_file_path}")
+                result = remote_file_path, True
+            else:
+                logger.info(
+                    f"上传完成，但远程备份路径没有检测到备份文件，请检查备份路径是否正确，远程备份路径：{remote_file_path}")
+                result = remote_file_path, False
+
         try:
             # 使用urljoin确保路径正确
-            remote_file_path = urljoin(f'{self._hostname}/', os.path.basename(file))
+            file_name = os.path.basename(local_file_path)
+            remote_file_path = urljoin(f'{self._hostname}/', file_name)
             logger.info(f"远程备份路径为：{remote_file_path}")
-
-            self._client.upload_sync(remote_path=os.path.basename(file), local_path=file)
-            return remote_file_path, True
+            self._client.upload_sync(remote_path=file_name, local_path=local_file_path, callback=upload_callback)
         except Exception as e:
             logger.error(f"上传到WebDAV服务器失败: {e}")
             if hasattr(e, 'response'):
                 logger.error(f"服务器响应: {e.response.text}")
         finally:
             # 不论上传成功与否都清理本地文件
-            if os.path.exists(file):
-                logger.info(f"清理本地文件：{file}")
-                os.remove(file)
-        return "", False
+            if os.path.exists(local_file_path):
+                logger.info(f"清理本地临时文件：{local_file_path}")
+                os.remove(local_file_path)
+
+        # 返回由回调函数设置的结果
+        return result
 
     @staticmethod
     def __backup_and_zip_file() -> str:
@@ -442,6 +458,7 @@ class WebDAVBackup(_PluginBase):
 
             # 确保备份路径存在
             backup_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"本地临时备份文件夹路径：{backup_path}")
 
             # 需要备份的文件列表
             backup_files = [
@@ -452,15 +469,17 @@ class WebDAVBackup(_PluginBase):
 
             # 将文件复制到备份文件夹
             for file_path in backup_files:
-                logger.info(f"正在备份文件: {file_path}")
                 if file_path.exists():
+                    logger.info(f"正在备份文件: {file_path}")
                     shutil.copy(file_path, backup_path)
 
             # 打包备份文件夹为ZIP
-            shutil.make_archive(base_name=str(backup_path), format='zip', root_dir=str(backup_path))
-            shutil.rmtree(backup_path)  # 删除临时备份文件夹
-
             logger.info(f"正在压缩备份文件: {zip_file_path}")
+            shutil.make_archive(base_name=str(backup_path), format='zip', root_dir=str(backup_path))
+
+            shutil.rmtree(backup_path)  # 删除临时备份文件夹
+            logger.info(f"清理本地临时文件夹：{backup_path}")
+
             return zip_file_path
         except Exception as e:
             logger.error(f"创建备份ZIP文件失败: {e}")
@@ -478,10 +497,12 @@ class WebDAVBackup(_PluginBase):
             remote_files = self._client.list('/')
             filtered_files = [f for f in remote_files if pattern.match(f)]
             sorted_files = sorted(filtered_files,
-                                  key=lambda x: datetime.strptime(x,
-                                                                  "MoviePliot-Backup-%Y-%m-%d_%H-%M-%S.zip"))
-            logger.info(f"WebDAV上备份文件数量 {len(sorted_files)}")
-            if len(sorted_files) > max_count:
+                                  key=lambda x: datetime.strptime(x, "MoviePliot-Backup-%Y-%m-%d_%H-%M-%S.zip"))
+            excess_count = len(sorted_files) - max_count
+
+            if excess_count > 0:
+                logger.info(
+                    f"WebDAV上备份文件数量为 {len(sorted_files)}，超出最大保留数 {max_count}，需删除 {excess_count} 个备份文件")
                 for file_info in sorted_files[:-max_count]:
                     remote_file_path = f"/{file_info}"
                     try:
@@ -489,6 +510,9 @@ class WebDAVBackup(_PluginBase):
                         logger.info(f"WebDAV上的备份文件 {remote_file_path} 已删除")
                     except Exception as e:
                         logger.error(f"删除WebDAV文件 {remote_file_path} 失败: {e}")
+            else:
+                logger.info(
+                    f"WebDAV上备份文件数量为 {len(sorted_files)}，符合最大保留数 {max_count}，不需删除文件")
         except Exception as e:
             logger.error(f"获取WebDAV文件列表失败: {e}")
 
