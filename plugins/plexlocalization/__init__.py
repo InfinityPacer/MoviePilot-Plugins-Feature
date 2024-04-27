@@ -9,13 +9,12 @@ from typing import Any, List, Dict, Tuple
 import pypinyin
 import pytz
 import requests
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-
 from app.core.config import settings
 from app.log import logger
 from app.modules.plex import Plex
 from app.plugins import _PluginBase
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 lock = threading.Lock()
 
@@ -92,7 +91,6 @@ class PlexLocalization(_PluginBase):
         # 停止现有任务
         self.stop_service()
 
-        self._onlyonce = True
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
         if self._onlyonce:
             logger.info(f"Plex中文本地化服务，立即运行一次")
@@ -239,6 +237,7 @@ class PlexLocalization(_PluginBase):
                                         'props': {
                                             'model': 'lock',
                                             'label': '锁定元数据',
+                                            'hint': '电影合集只有锁定时才会生效'
                                         },
                                     }
                                 ],
@@ -478,7 +477,8 @@ class PlexLocalization(_PluginBase):
         logger.info(f"正在准备本地化服务")
         libraries = self.__get_libraries()
         logger.info(f"正在准备本地化的媒体库 {libraries}")
-        service = PlexService(translate_tags=self._tags, host=settings.PLEX_HOST, token=settings.PLEX_TOKEN)
+        service = PlexService(translate_tags=self._tags, lock_meta=self._lock,
+                              host=settings.PLEX_HOST, token=settings.PLEX_TOKEN)
         if service.login:
             service.loop_all(libraries=libraries, thread_count=self._thread_count)
         else:
@@ -638,31 +638,29 @@ class PlexService:
 
     def _put_title_sort(self, select, rating_key, sort_title, lock_meta, is_coll: bool):
         endpoint = f'library/metadata/{rating_key}' if is_coll else f'library/sections/{select[0]}/all'
-        response = self._session.put(
+        self._session.put(
             url=f"{self._host}/{endpoint}",
             params={
                 "type": select[1],
                 "id": rating_key,
                 "includeExternalMedia": 1,
                 "titleSort.value": sort_title,
-                "titleSort.locked": lock_meta
+                "titleSort.locked": 1 if lock_meta else 0
             }
         )
-        logger.info(f'{response.text}')
 
     def _put_tag(self, select, rating_key, tag, addtag, tag_type, title, lock_meta):
-        response = self._session.put(
+        self._session.put(
             url=f"{self._host}/library/sections/{select[0]}/all",
             params={
                 "type": select[1],
                 "id": rating_key,
-                f"{tag_type}.locked": lock_meta,
+                f"{tag_type}.locked": 1 if lock_meta else 0,
                 f"{tag_type}[0].tag.tag": addtag,
                 f"{tag_type}[].tag.tag-": tag
             }
         )
         logger.info(f"{title} : {tag} → {addtag}")
-        logger.info(f'{response.text}')
 
     def _process_items(self, rating_key):
         metadata = self._get_metadata(rating_key)
@@ -672,7 +670,6 @@ class PlexService:
         is_coll, type_id = (False, types[metadata['type']]) \
             if metadata['type'] != 'collection' \
             else (True, types[metadata['subtype']])
-
         title = metadata["title"]
         title_sort = metadata.get("titleSort", "")
         tags: dict[str:list] = {
