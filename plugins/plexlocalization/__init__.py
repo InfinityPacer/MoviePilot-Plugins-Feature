@@ -23,9 +23,9 @@ class PlexLocalization(_PluginBase):
     # 插件名称
     plugin_name = "Plex中文本地化"
     # 插件描述
-    plugin_desc = "将Plex中的媒体进行中文本地化，支持拼音排序、搜索及类型标签汉化功能。"
+    plugin_desc = "实现拼音排序、搜索及类型标签中文本地化功能。"
     # 插件图标
-    plugin_icon = "Plex_A.png"
+    plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexlocalization.png"
     # 插件版本
     plugin_version = "1.0"
     # 插件作者

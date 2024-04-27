@@ -64,5 +64,16 @@
             "v1.1": "优化部分逻辑及日志记录",
             "v1.0": "增加WebDAV备份插件，定时通过WebDAV备份数据库和配置文件"
         }
+    },
+    "PlexLocalization": {
+        "name": "Plex中文本地化",
+        "description": "实现拼音排序、搜索及类型标签中文本地化功能。",
+        "version": "1.0",
+        "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexlocalization.png",
+        "author": "InfinityPacer",
+        "level": 1,
+        "history": {
+            "v1.0": "增加Plex中文本地化插件，实现拼音排序、搜索及类型标签中文本地化功能"
+        }
     }
 }
