@@ -626,9 +626,9 @@ class PlexService:
 
         if len(keys):
             if is_coll:
-                logger.info(F"<{types_index[select[1]]}> 类型共计{len(keys)}个合集")
+                logger.info(F"<{select[2]} {types_index[select[1]]}> 类型共计{len(keys)}个合集")
             else:
-                logger.info(F"<{types_index[select[1]]}> 类型共计{len(keys)}个媒体")
+                logger.info(F"<{select[2]} {types_index[select[1]]}> 类型共计{len(keys)}个媒体")
 
         return keys
 
@@ -707,7 +707,7 @@ class PlexService:
         for library in libraries.values():
             for type_id in library[1]:
                 for is_coll in [False, True]:
-                    if keys := self._list_keys((library[0], type_id), is_coll):
+                    if keys := self._list_keys((library[0], type_id, library[2]), is_coll):
                         self._threads(datalist=keys, func=self._process_items,
                                       thread_count=thread_count)
 
