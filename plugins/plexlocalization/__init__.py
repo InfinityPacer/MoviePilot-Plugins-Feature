@@ -474,15 +474,16 @@ class PlexLocalization(_PluginBase):
             logger.info(str(e))
 
     def localization(self):
-        logger.info(f"正在准备本地化服务")
-        libraries = self.__get_libraries()
-        logger.info(f"正在准备本地化的媒体库 {libraries}")
-        service = PlexService(translate_tags=self._tags, lock_meta=self._lock,
-                              host=settings.PLEX_HOST, token=settings.PLEX_TOKEN)
-        if service.login:
-            service.loop_all(libraries=libraries, thread_count=self._thread_count)
-        else:
-            logger.info("本地化服务已取消")
+        with lock:
+            logger.info(f"正在准备本地化服务")
+            libraries = self.__get_libraries()
+            logger.info(f"正在准备本地化的媒体库 {libraries}")
+            service = PlexService(translate_tags=self._tags, lock_meta=self._lock,
+                                  host=settings.PLEX_HOST, token=settings.PLEX_TOKEN)
+            if service.login:
+                service.loop_all(libraries=libraries, thread_count=self._thread_count)
+            else:
+                logger.info("本地化服务已取消")
 
     def __get_libraries(self):
         """获取媒体库信息"""
