@@ -1,16 +1,21 @@
+import concurrent.futures
 import json
 import re
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple
 
+import pypinyin
 import pytz
+import requests
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 from app.core.config import settings
 from app.log import logger
 from app.modules.plex import Plex
 from app.plugins import _PluginBase
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 
 lock = threading.Lock()
 
@@ -19,7 +24,7 @@ class PlexLocalization(_PluginBase):
     # 插件名称
     plugin_name = "Plex中文本地化"
     # 插件描述
-    plugin_desc = "将Plex中的媒体信息进行中文本地化，从而支持拼音排序、拼音搜索及类型标签汉化功能。"
+    plugin_desc = "将Plex中的媒体进行中文本地化，支持拼音排序、搜索及类型标签汉化功能。"
     # 插件图标
     plugin_icon = "Plex_A.png"
     # 插件版本
@@ -55,6 +60,8 @@ class PlexLocalization(_PluginBase):
     _tags_json = None
     # tags
     _tags = None
+    # 运行线程数
+    _thread_count = None
     # 定时器
     _scheduler = None
     # 退出事件
@@ -63,7 +70,7 @@ class PlexLocalization(_PluginBase):
     # endregion
 
     def init_plugin(self, config: dict = None):
-        self._plex = Plex()
+        self._plex = Plex().get_plex()
 
         if not config:
             logger.info("Plex中文本地化开启失败，无法获取插件配置")
@@ -77,10 +84,15 @@ class PlexLocalization(_PluginBase):
         self._lock = config.get("lock")
         self._tags_json = config.get("tags_json")
         self._tags = self.__get_tags()
+        try:
+            self._thread_count = int(config.get("thread_count", 5))
+        except ValueError:
+            self._thread_count = 5
 
         # 停止现有任务
         self.stop_service()
 
+        self._onlyonce = True
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
         if self._onlyonce:
             logger.info(f"Plex中文本地化服务，立即运行一次")
@@ -101,6 +113,7 @@ class PlexLocalization(_PluginBase):
             "library_ids": self._library_ids,
             "lock": self._lock,
             "tags_json": self._tags_json,
+            "thread_count": self._thread_count
         }
         self.update_config(config=config_mapping)
 
@@ -108,9 +121,6 @@ class PlexLocalization(_PluginBase):
         if self._scheduler.get_jobs():
             self._scheduler.print_jobs()
             self._scheduler.start()
-
-    def localization(self):
-        pass
 
     def get_state(self) -> bool:
         return self._enabled
@@ -137,16 +147,18 @@ class PlexLocalization(_PluginBase):
             logger.info(f"Plex配置不正确，请检查")
 
         if not self._plex:
-            self._plex = Plex()
+            self._plex = Plex().get_plex()
 
-        library = self._plex.get_plex().library
         # 获取所有媒体库
-        libraries = library.sections()
+        libraries = self._plex.library.sections()
         # 生成媒体库选项列表
         library_options = []
 
         # 遍历媒体库，创建字典并添加到列表中
         for library in libraries:
+            # 排除照片库
+            if library.TYPE == "photo":
+                continue
             library_dict = {
                 "title": f"{library.key}. {library.title} ({library.TYPE})",
                 "value": library.key
@@ -219,23 +231,7 @@ class PlexLocalization(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'cron',
-                                            'label': '执行周期'
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
+                                    'md': 8
                                 },
                                 'content': [
                                     {
@@ -259,6 +255,43 @@ class PlexLocalization(_PluginBase):
                                         'props': {
                                             'model': 'dialog_closed',
                                             'label': '打开标签设置窗口',
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'cron',
+                                            'label': '执行周期'
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'thread_count',
+                                            'label': '运行线程数',
                                         },
                                     }
                                 ],
@@ -391,7 +424,8 @@ class PlexLocalization(_PluginBase):
             "notify": True,
             "cron": "0 */1 * * *",
             "lock": False,
-            "tags_json": self.__get_preset_tags_json()
+            "tags_json": self.__get_preset_tags_json(),
+            "thread_count": 5
         }
 
     def get_page(self) -> List[dict]:
@@ -438,9 +472,29 @@ class PlexLocalization(_PluginBase):
                     self._event.clear()
                 self._scheduler = None
         except Exception as e:
-            print(str(e))
+            logger.info(str(e))
 
-    def __get_tags(self) -> str:
+    def localization(self):
+        logger.info(f"正在准备本地化服务")
+        libraries = self.__get_libraries()
+        logger.info(f"正在准备本地化的媒体库 {libraries}")
+        service = PlexService(translate_tags=self._tags, host=settings.PLEX_HOST, token=settings.PLEX_TOKEN)
+        if service.login:
+            service.loop_all(libraries=libraries, thread_count=self._thread_count)
+        else:
+            logger.info("本地化服务已取消")
+
+    def __get_libraries(self):
+        """获取媒体库信息"""
+        libraries = {
+            int(library.key): (int(library.key), TYPES[library.type], library.title, library.type)
+            for library in self._plex.library.sections()
+            if library.type != 'photo' and library.key in self._library_ids  # 排除照片库
+        }
+
+        return libraries
+
+    def __get_tags(self) -> dict:
         try:
             # 如果预置Json被清空，这里还原为默认Json
             if not self._tags_json:
@@ -510,3 +564,192 @@ class PlexLocalization(_PluginBase):
     "Adult": "成人"
 }"""
         return desc + config
+
+
+types = {"movie": 1, "show": 2, "artist": 8, "album": 9, 'track': 10}
+TYPES = {"movie": [1], "show": [2], "artist": [8, 9, 10]}
+
+
+class PlexService:
+    # request.session
+    _session = None
+    # plex_host
+    _host = None
+    # plex_token
+    _token = None
+    # translate_tags
+    _translate_tags = None
+    # lock_meta
+    _lock_meta = None
+    # login
+    login = False
+
+    def __init__(self, translate_tags: dict, lock_meta=False, host: str = None, token: str = None):
+        if translate_tags:
+            self._translate_tags = translate_tags
+
+        self._lock_meta = lock_meta
+
+        if host and token:
+            self._host = host
+            self._token = token
+            # 去除末尾的斜线（如果存在）
+            if self._host.endswith("/"):
+                self._host = self._host[:-1]
+            # 确保URL以http://或https://开始
+            if not self._host.startswith("http://") and not self._host.startswith("https://"):
+                self._host = "http://" + self._host
+
+            headers = {'X-Plex-Token': self._token, 'Accept': 'application/json', "Content-Type": "application/json"}
+            self._session = requests.session()
+            self._session.headers = headers
+            result, message = self._login()
+            self.login = result
+            logger.info(message)
+
+    def _login(self):
+        try:
+            friendly_name = self._session.get(url=self._host).json()['MediaContainer']['friendlyName']
+            return True, f"已成功连接到服务器{friendly_name}"
+        except Exception as e:
+            logger.info(e)
+            return False, "Plex服务器连接不成功，请检查配置文件是否正确"
+
+    def _list_keys(self, select, is_coll: bool):
+        types_index = {value: key for key, value in types.items()}
+
+        endpoint = f'sections/{select[0]}/collections' if is_coll else f'sections/{select[0]}/all?type={select[1]}'
+        datas = self._session.get(f'{self._host}/library/{endpoint}').json().get("MediaContainer", {}).get(
+            "Metadata",
+            [])
+        keys = [data.get("ratingKey") for data in datas]
+
+        if len(keys):
+            if is_coll:
+                logger.info(F"<{types_index[select[1]]}> 类型共计{len(keys)}个合集")
+            else:
+                logger.info(F"<{types_index[select[1]]}> 类型共计{len(keys)}个媒体")
+
+        return keys
+
+    def _get_metadata(self, rating_key):
+        url = f'{self._host}/library/metadata/{rating_key}'
+        return self._session.get(url=url).json()["MediaContainer"]["Metadata"][0]
+
+    def _put_title_sort(self, select, rating_key, sort_title, lock_meta, is_coll: bool):
+        endpoint = f'library/metadata/{rating_key}' if is_coll else f'library/sections/{select[0]}/all'
+        response = self._session.put(
+            url=f"{self._host}/{endpoint}",
+            params={
+                "type": select[1],
+                "id": rating_key,
+                "includeExternalMedia": 1,
+                "titleSort.value": sort_title,
+                "titleSort.locked": lock_meta
+            }
+        )
+        logger.info(f'{response.text}')
+
+    def _put_tag(self, select, rating_key, tag, addtag, tag_type, title, lock_meta):
+        response = self._session.put(
+            url=f"{self._host}/library/sections/{select[0]}/all",
+            params={
+                "type": select[1],
+                "id": rating_key,
+                f"{tag_type}.locked": lock_meta,
+                f"{tag_type}[0].tag.tag": addtag,
+                f"{tag_type}[].tag.tag-": tag
+            }
+        )
+        logger.info(f"{title} : {tag} → {addtag}")
+        logger.info(f'{response.text}')
+
+    def _process_items(self, rating_key):
+        metadata = self._get_metadata(rating_key)
+
+        library_id = metadata['librarySectionID']
+
+        is_coll, type_id = (False, types[metadata['type']]) \
+            if metadata['type'] != 'collection' \
+            else (True, types[metadata['subtype']])
+
+        title = metadata["title"]
+        title_sort = metadata.get("titleSort", "")
+        tags: dict[str:list] = {
+            'genre': [genre.get("tag") for genre in metadata.get('Genre', {})],  # 流派
+            'style': [style.get("tag") for style in metadata.get('Style', {})],  # 风格
+            'mood': [mood.get("tag") for mood in metadata.get('Mood', {})]  # 情绪
+        }
+
+        select = library_id, type_id
+
+        # 更新标题排序
+        if self._has_chinese(title_sort) or title_sort == "":
+            title_sort = self._convert_to_pinyin(title)
+            self._put_title_sort(select, rating_key, title_sort, self._lock_meta, is_coll)
+            logger.info(f"{title} < {title_sort} >")
+
+        # 汉化标签
+        for tag_type, tag_list in tags.items():
+            if tag_list:
+                for tag in tag_list:
+                    self._put_tag(select, rating_key, tag, new_tag, tag_type, title, self._lock_meta) \
+                        if (new_tag := self._translate_tags.get(tag)) else None
+
+    def loop_all(self, libraries: dict, thread_count: int = None):
+        """选择媒体库并遍历其中的每一个媒体。"""
+        if not self._translate_tags:
+            logger.warn("标签本地化配置不能为空，请检查")
+            return
+
+        logger.info(f"当前标签本地化配置为：{self._translate_tags}")
+
+        t = time.time()
+        logger.info(f"正在运行中文本地化，线程数：{thread_count}，锁定元数据：{self._lock_meta}")
+
+        for library in libraries.values():
+            for type_id in library[1]:
+                for is_coll in [False, True]:
+                    if keys := self._list_keys((library[0], type_id), is_coll):
+                        self._threads(datalist=keys, func=self._process_items,
+                                      thread_count=thread_count)
+
+        logger.info(f'运行完毕，用时 {time.time() - t} 秒')
+
+    @staticmethod
+    def _has_chinese(string):
+        """判断是否有中文"""
+        for char in string:
+            if '\u4e00' <= char <= '\u9fff':
+                return True
+        return False
+
+    @staticmethod
+    def _convert_to_pinyin(text):
+        """将字符串转换为拼音首字母形式。"""
+        str_a = pypinyin.pinyin(text, style=pypinyin.FIRST_LETTER)
+        str_b = [str(str_a[i][0]).upper() for i in range(len(str_a))]
+        return ''.join(str_b).replace("：", ":").replace("（", "(").replace("）", ")").replace("，", ",")
+
+    @staticmethod
+    def _threads(datalist, func, thread_count):
+        """
+        多线程处理模块
+        :param datalist: 待处理数据列表
+        :param func: 处理函数
+        :param thread_count: 运行线程数
+        :return:
+        """
+
+        def chunks(lst, n):
+            """列表切片工具"""
+            for i in range(0, len(lst), n):
+                yield lst[i:i + n]
+
+        chunk_size = (len(datalist) + thread_count - 1) // thread_count  # 计算每个线程需要处理的元素数量
+        list_chunks = list(chunks(datalist, chunk_size))  # 将 datalist 切分成 n 段
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=thread_count) as executor:
+            result_items = list(executor.map(func, [item for chunk in list_chunks for item in chunk]))
+
+        return result_items
