@@ -68,11 +68,12 @@
     "PlexLocalization": {
         "name": "Plex中文本地化",
         "description": "实现拼音排序、搜索及类型标签中文本地化功能。",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexlocalization.png",
         "author": "InfinityPacer",
         "level": 1,
         "history": {
+            "v1.1": "增加参考项目相关感谢内容",
             "v1.0": "增加Plex中文本地化插件，实现拼音排序、搜索及类型标签中文本地化功能"
         }
     }

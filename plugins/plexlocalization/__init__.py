@@ -27,7 +27,7 @@ class PlexLocalization(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexlocalization.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -319,6 +319,84 @@ class PlexLocalization(_PluginBase):
                                 ],
                             },
                         ],
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal'
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'span',
+                                                'text': '基于 '
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/sqkkyzx/plex_localization_zhcn',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'plex_localization_zhcn，'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/x1ao4/plex-localization-zh',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'plex-localization-zh'
+                                            },
+                                            {
+                                                'component': 'span',
+                                                'text': ' 项目编写，感谢'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/timmy0209',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'timmy0209、'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/sqkkyzx',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'sqkkyzx、'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/x1ao4',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'x1ao4、'
+                                            },
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://github.com/anooki-c',
+                                                    'target': '_blank'
+                                                },
+                                                'text': 'anooki-c'
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
                     },
                     {
                         'component': 'VRow',
