@@ -35,7 +35,7 @@ class PlexLocalization(_PluginBase):
     # 插件配置项ID前缀
     plugin_config_prefix = "plexlocalization_"
     # 加载顺序
-    plugin_order = 99
+    plugin_order = 91
     # 可使用的用户级别
     auth_level = 1
     # Plex

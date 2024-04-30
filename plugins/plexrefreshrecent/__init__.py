@@ -17,7 +17,7 @@ lock = threading.Lock()
 
 class PlexRefreshRecent(_PluginBase):
     # 插件名称
-    plugin_name = "刷新Plex元数据"
+    plugin_name = "Plex元数据刷新"
     # 插件描述
     plugin_desc = "定时通知Plex刷新最近入库元数据。"
     # 插件图标
@@ -31,7 +31,7 @@ class PlexRefreshRecent(_PluginBase):
     # 插件配置项ID前缀
     plugin_config_prefix = "plexrefreshrecent_"
     # 加载顺序
-    plugin_order = 99
+    plugin_order = 90
     # 可使用的用户级别
     auth_level = 1
     # Plex
