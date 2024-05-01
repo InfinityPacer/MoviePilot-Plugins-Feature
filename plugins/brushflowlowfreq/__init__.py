@@ -10,6 +10,9 @@ from typing import Any, List, Dict, Tuple, Optional, Union, Set
 from urllib.parse import urlparse, parse_qs, unquote
 
 import pytz
+from app.helper.sites import SitesHelper
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from app import schemas
 from app.chain.torrents import TorrentsChain
 from app.core.config import settings
@@ -17,7 +20,6 @@ from app.core.context import MediaInfo
 from app.core.metainfo import MetaInfo
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
-from app.helper.sites import SitesHelper
 from app.log import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
@@ -25,7 +27,6 @@ from app.plugins import _PluginBase
 from app.schemas import NotificationType, TorrentInfo, MediaType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
-from apscheduler.schedulers.background import BackgroundScheduler
 
 lock = threading.Lock()
 
@@ -146,9 +147,10 @@ class BrushConfig:
 
     @staticmethod
     def get_demo_site_config() -> str:
-        desc = ("// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md 进行配置\n"
-                "// 如与全局保持一致的配置项，请勿在站点配置中配置\n"
-                "// 注意无关内容需使用 // 注释\n")
+        desc = (
+            "// 以下为配置示例，请参考：https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md 进行配置\n"
+            "// 如与全局保持一致的配置项，请勿在站点配置中配置\n"
+            "// 注意无关内容需使用 // 注释\n")
         config = """[{
     "sitename": "站点1",
     "seed_time": 96,
@@ -249,7 +251,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "2.9"
+    plugin_version = "3.0"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -1376,15 +1378,20 @@ class BrushFlowLowFreq(_PluginBase):
                                         'content': [
                                             {
                                                 'component': 'span',
-                                                'text': '部分配置项以及细节请参考：'
+                                                'text': '注意：详细配置说明以及刷流规则请参考：'
                                             },
                                             {
                                                 'component': 'a',
                                                 'props': {
-                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                    'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
                                                     'target': '_blank'
                                                 },
-                                                'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                                'content': [
+                                                    {
+                                                        'component': 'u',
+                                                        'text': 'README'
+                                                    }
+                                                ]
                                             }
                                         ]
                                     }
@@ -1504,10 +1511,15 @@ class BrushFlowLowFreq(_PluginBase):
                                                                     {
                                                                         'component': 'a',
                                                                         'props': {
-                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md',
+                                                                            'href': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/plugins/brushflowlowfreq/README.md',
                                                                             'target': '_blank'
                                                                         },
-                                                                        'text': 'https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md'
+                                                                        'content': [
+                                                                            {
+                                                                                'component': 'u',
+                                                                                'text': 'README'
+                                                                            }
+                                                                        ]
                                                                     }
                                                                 ]
                                                             }
@@ -2302,6 +2314,12 @@ class BrushFlowLowFreq(_PluginBase):
             if any(task_page_url == f"{task.get('site_name')}{task.get('page_url')}" for task in
                    torrent_tasks.values()):
                 return False, "重复种子"
+
+        # 不同站点如果遇到相同种子，判断前一个种子是否已经在做种，否则排除处理
+        if torrent.title:
+            if any(torrent.site_name != f"{task.get('site_name')}" and torrent.title == f"{task.get('title')}"
+                   and not task.get("seed_time") for task in torrent_tasks.values()):
+                return False, "其他站点存在尚未下载完成的相同种子"
 
         # 促销条件
         if brush_config.freeleech and torrent.downloadvolumefactor != 0:
@@ -3714,7 +3732,7 @@ class BrushFlowLowFreq(_PluginBase):
             now = datetime.now()
             return (now - pubdate).total_seconds() // 60
         except Exception as e:
-            print(str(e))
+            logger.error(f"发布时间 {pubdate} 获取分钟失败，错误详情: {e}")
             return 0
 
     @staticmethod
