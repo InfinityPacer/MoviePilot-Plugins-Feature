@@ -1254,7 +1254,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                         "component": "VSwitch",
                                                         "props": {
                                                             "model": "dialog_closed",
-                                                            "label": "设置站点"
+                                                            "label": "打开站点配置窗口"
                                                         }
                                                     }
                                                 ]
