@@ -56,7 +56,7 @@ class PlexAutoSkip(_PluginBase):
 
         self._enabled = config.get("enabled")
         if self._enabled:
-            self._skipper_config = config.get("skipper_config") or ""
+            self._skipper_config = config.get("skipper_config", self.default_ini.read_text(encoding="utf-8"))
             self.user_ini.write_text(self._skipper_config, encoding="utf-8")
             self._start_auto_skip()
 
@@ -77,17 +77,24 @@ class PlexAutoSkip(_PluginBase):
     def _start_auto_skip(self):
         logger.info("已开启PlexAutoSkip，正在初始化相关服务")
 
-        log = self._get_logger(self.plugin_name.lower())
-        skip_settings = Settings(logger=log)
+        try:
+            log = self._get_logger(self.plugin_name.lower())
+            skip_settings = Settings(logger=log)
+            self.update_config({
+                "enabled": self._enabled,
+                "skipper_config": self.user_ini.read_text(encoding="utf-8")
+            })
 
-        plex, sslopt = getPlexServer(skip_settings, log)
+            plex, sslopt = getPlexServer(skip_settings, log)
 
-        if plex:
-            self._skipper = Skipper(plex, skip_settings, log)
-            self._skipper_thread = threading.Thread(target=self._skipper.start, args=(sslopt,))
-            self._skipper_thread.start()
-        else:
-            log.error("Unable to establish Plex Server object via PlexAPI")
+            if plex:
+                self._skipper = Skipper(plex, skip_settings, log)
+                self._skipper_thread = threading.Thread(target=self._skipper.start, args=(sslopt,))
+                self._skipper_thread.start()
+            else:
+                log.error("Unable to establish Plex Server object via PlexAPI")
+        except Exception as e:
+            logger.info("PlexAutoSkip初始化失败，请检查配置信息：" + str(e))
 
     def get_state(self) -> bool:
         return self._enabled

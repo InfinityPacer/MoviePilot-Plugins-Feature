@@ -36,7 +36,6 @@ skip-next-max = 0
 [Offsets]
 start = 3000
 end = 1000
-delay = 500
 tags = intro
 command = 500
 
