@@ -23,7 +23,7 @@ class PlexRefreshRecent(_PluginBase):
     # 插件图标
     plugin_icon = "Plex_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -49,6 +49,8 @@ class PlexRefreshRecent(_PluginBase):
     _onlyonce = False
     # 开启通知
     _notify = False
+    # limit
+    _limit = None
     # 定时器
     _scheduler = None
     # 退出事件
@@ -60,26 +62,35 @@ class PlexRefreshRecent(_PluginBase):
         self._plex = Plex()
 
         if not config:
-            logger.info("刷新最近入库元数据失败，无法获取插件配置")
+            logger.info("Plex元数据刷新服务启动失败，无法获取插件配置")
             return False
 
         self._enabled = config.get("enabled")
         self._cron = config.get("cron")
-        self._offset_days = config.get("offset_days")
         self._notify = config.get("notify")
         self._onlyonce = config.get("onlyonce")
+
+        try:
+            self._offset_days = int(config.get("offset_days", 3))
+        except ValueError:
+            self._offset_days = 3
+
+        try:
+            self._limit = int(config.get("limit", 1000))
+        except ValueError:
+            self._limit = 1000
 
         # 停止现有任务
         self.stop_service()
 
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
         if self._onlyonce:
-            logger.info(f"刷新最近入库元数据服务启动，立即运行一次")
+            logger.info(f"Plex元数据刷新服务启动，立即运行一次")
             self._scheduler.add_job(
                 func=self.refresh_recent,
                 trigger="date",
                 run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                name="刷新最近入库元数据",
+                name="Plex元数据刷新",
             )
 
             # 关闭一次性开关
@@ -92,6 +103,7 @@ class PlexRefreshRecent(_PluginBase):
                 "enabled": self._enabled,
                 "offset_days": self._offset_days,
                 "notify": self._notify,
+                "limit": self._limit
             }
         )
 
@@ -163,7 +175,7 @@ class PlexRefreshRecent(_PluginBase):
                 logger.error(e)
                 msg = f"元数据刷新失败，失败原因：{e}"
 
-        logger.info(f"已完成刷新最近入库元数据")
+        logger.info(f"已完成最近入库元数据刷新")
         if self._notify:
             self.post_message(
                 mtype=NotificationType.SiteMessage,
@@ -175,7 +187,7 @@ class PlexRefreshRecent(_PluginBase):
         plex = self._plex.get_plex()
 
         timestamp = self.__get_timestamp(-int(self._offset_days))
-        library_items = plex.library.search(limit=200, **{'addedAt>': timestamp})
+        library_items = plex.library.search(limit=self._limit, **{'addedAt>': timestamp})
 
         refreshed_items = {}
         for item in library_items:
@@ -230,9 +242,9 @@ class PlexRefreshRecent(_PluginBase):
         """
         return [
             {
-                "cmd": "/refresh_plex_recent_event",
+                "cmd": "/refresh_plex_recent",
                 "event": EventType.PluginAction,
-                "desc": "刷新Plex最近入库元数据",
+                "desc": "Plex元数据刷新",
                 "category": "",
                 "data": {"action": "refresh_plex_recent_event"},
             }
@@ -302,7 +314,7 @@ class PlexRefreshRecent(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -318,7 +330,7 @@ class PlexRefreshRecent(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -326,10 +338,28 @@ class PlexRefreshRecent(_PluginBase):
                                         'props': {
                                             'model': 'offset_days',
                                             'label': '几天内',
+                                            'placeholder': '刷新最近几天内入库的元数据'
                                         },
                                     }
                                 ],
                             },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'limit',
+                                            'label': '元数据数量',
+                                            'placeholder': '刷新的最大元数据数量'
+                                        },
+                                    }
+                                ],
+                            }
                         ],
                     },
                 ],
@@ -338,7 +368,8 @@ class PlexRefreshRecent(_PluginBase):
             "enabled": False,
             "notify": True,
             "cron": "0 */3 * * *",
-            "offset_days": "3"
+            "offset_days": "3",
+            "limit": 1000
         }
 
     def get_page(self) -> List[dict]:
@@ -361,14 +392,14 @@ class PlexRefreshRecent(_PluginBase):
             logger.info(f"刷新Plex最近入库元数据定时服务启动，时间间隔 {self._cron} ")
             services.append({
                 "id": "PlexRefreshRecent",
-                "name": "刷新Plex最近入库元数据",
+                "name": "Plex元数据刷新",
                 "trigger": CronTrigger.from_crontab(self._cron),
                 "func": self.refresh_recent,
                 "kwargs": {}
             })
 
         if not services:
-            logger.info("刷新Plex最近入库元数据定时服务未开启")
+            logger.info("Plex元数据刷新定时服务未开启")
 
         return services
 
