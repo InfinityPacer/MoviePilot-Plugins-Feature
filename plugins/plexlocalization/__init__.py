@@ -9,12 +9,15 @@ from typing import Any, List, Dict, Tuple
 import pypinyin
 import pytz
 import requests
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 from app.core.config import settings
+from app.core.event import eventmanager, Event
 from app.log import logger
 from app.modules.plex import Plex
 from app.plugins import _PluginBase
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+from app.schemas.types import EventType
 
 lock = threading.Lock()
 
@@ -27,7 +30,7 @@ class PlexLocalization(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexlocalization.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -55,6 +58,10 @@ class PlexLocalization(_PluginBase):
     _library_ids = None
     # 锁定元数据
     _lock = None
+    # 入库后执行一次
+    _execute_transfer = None
+    # 入库后延迟执行时间
+    _delay = None
     # tags_json
     _tags_json = None
     # tags
@@ -81,12 +88,21 @@ class PlexLocalization(_PluginBase):
         self._notify = config.get("notify")
         self._library_ids = config.get("library_ids")
         self._lock = config.get("lock")
+        self._execute_transfer = config.get("execute_transfer")
         self._tags_json = config.get("tags_json")
         self._tags = self.__get_tags()
         try:
             self._thread_count = int(config.get("thread_count", 5))
         except ValueError:
             self._thread_count = 5
+        try:
+            self._delay = int(config.get("delay", 300))
+        except ValueError:
+            self._delay = 300
+
+        # 如果开启了入库后执行一次，延迟时间又不填，默认为300s
+        if self._execute_transfer and not self._delay:
+            self._delay = 300
 
         # 停止现有任务
         self.stop_service()
@@ -111,7 +127,9 @@ class PlexLocalization(_PluginBase):
             "library_ids": self._library_ids,
             "lock": self._lock,
             "tags_json": self._tags_json,
-            "thread_count": self._thread_count
+            "thread_count": self._thread_count,
+            "execute_transfer": self._execute_transfer,
+            "delay": self._delay
         }
         self.update_config(config=config_mapping)
 
@@ -229,7 +247,7 @@ class PlexLocalization(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 8
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -238,6 +256,22 @@ class PlexLocalization(_PluginBase):
                                             'model': 'lock',
                                             'label': '锁定元数据',
                                             'hint': '电影合集只有锁定时才会生效'
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'execute_transfer',
+                                            'label': '入库后执行一次'
                                         },
                                     }
                                 ],
@@ -267,7 +301,7 @@ class PlexLocalization(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -283,7 +317,24 @@ class PlexLocalization(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'delay',
+                                            'label': '延迟时间（秒）',
+                                            'placeholder': '入库后延迟执行时间'
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -450,7 +501,9 @@ class PlexLocalization(_PluginBase):
             "cron": "0 1 * * *",
             "lock": False,
             "tags_json": self.__get_preset_tags_json(),
-            "thread_count": 5
+            "thread_count": 5,
+            "execute_transfer": False,
+            "delay": 300
         }
 
     def get_page(self) -> List[dict]:
@@ -498,6 +551,40 @@ class PlexLocalization(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             logger.info(str(e))
+
+    @eventmanager.register(EventType.TransferComplete)
+    def after_transfer(self, event: Event):
+        """
+        发送通知消息
+        """
+        if not self._enabled:
+            return
+
+        event_info: dict = event.event_data
+        if not event_info:
+            return
+
+        if not settings.MEDIASERVER:
+            return
+
+        if "plex" not in settings.MEDIASERVER:
+            logger.info(f"Plex配置不正确，请检查")
+
+        if self._delay:
+            logger.info(f"延迟 {self._delay} 秒后启动本地化服务... ")
+
+        if not self._scheduler:
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+        self._scheduler.add_job(
+            func=self.localization,
+            trigger="date",
+            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=self._delay),
+            name="Plex中文本地化",
+        )
+        # 启动任务
+        if self._scheduler.get_jobs():
+            self._scheduler.print_jobs()
+            self._scheduler.start()
 
     def localization(self):
         with lock:
