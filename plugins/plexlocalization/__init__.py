@@ -337,61 +337,9 @@ class PlexLocalization(_PluginBase):
                                         },
                                         'content': [
                                             {
-                                                'component': 'span',
-                                                'text': '基于 '
+                                                'component': 'div',
+                                                'html': '基于 <a href="https://github.com/sqkkyzx/plex_localization_zhcn" target="_blank" style="text-decoration: underline;">plex_localization_zhcn</a>、<a href="https://github.com/x1ao4/plex-localization-zh" target="_blank" style="text-decoration: underline;">plex-localization-zh</a> 项目编写，特此感谢 <a href="https://github.com/timmy0209" target="_blank" style="text-decoration: underline;">timmy0209</a>、<a href="https://github.com/sqkkyzx" target="_blank" style="text-decoration: underline;">sqkkyzx</a>、<a href="https://github.com/x1ao4" target="_blank" style="text-decoration: underline;">x1ao4</a>、<a href="https://github.com/anooki-c" target="_blank" style="text-decoration: underline;">anooki-c</a>'
                                             },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/sqkkyzx/plex_localization_zhcn',
-                                                    'target': '_blank'
-                                                },
-                                                'text': 'plex_localization_zhcn，'
-                                            },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/x1ao4/plex-localization-zh',
-                                                    'target': '_blank'
-                                                },
-                                                'text': 'plex-localization-zh'
-                                            },
-                                            {
-                                                'component': 'span',
-                                                'text': ' 项目编写，感谢'
-                                            },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/timmy0209',
-                                                    'target': '_blank'
-                                                },
-                                                'text': 'timmy0209、'
-                                            },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/sqkkyzx',
-                                                    'target': '_blank'
-                                                },
-                                                'text': 'sqkkyzx、'
-                                            },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/x1ao4',
-                                                    'target': '_blank'
-                                                },
-                                                'text': 'x1ao4、'
-                                            },
-                                            {
-                                                'component': 'a',
-                                                'props': {
-                                                    'href': 'https://github.com/anooki-c',
-                                                    'target': '_blank'
-                                                },
-                                                'text': 'anooki-c'
-                                            }
                                         ]
                                     }
                                 ]
@@ -481,7 +429,7 @@ class PlexLocalization(_PluginBase):
                                                                 'props': {
                                                                     'type': 'info',
                                                                     'variant': 'tonal',
-                                                                    'text': '注意：已添加常用的中英标签，若需修改或新增可以在上述内容中添加'
+                                                                    'text': '注意：已预置常用标签的中英翻译，若需修改或新增可以在上述内容中添加'
                                                                 }
                                                             }
                                                         ]
@@ -499,7 +447,7 @@ class PlexLocalization(_PluginBase):
         ], {
             "enabled": False,
             "notify": True,
-            "cron": "0 */1 * * *",
+            "cron": "0 1 * * *",
             "lock": False,
             "tags_json": self.__get_preset_tags_json(),
             "thread_count": 5
@@ -590,8 +538,8 @@ class PlexLocalization(_PluginBase):
     @staticmethod
     def __get_preset_tags_json() -> str:
         """获取预置Json"""
-        desc = ("// 以下为预置的常用标签的中英翻译\n"
-                "// 若有其他标签需要汉化可以自己在下述内容中添加\n"
+        desc = ("// 已预置常用标签的中英翻译\n"
+                "// 若有标签需要修改或新增可以在下述内容中添加\n"
                 "// 注意无关内容需使用 // 注释\n")
         config = """{
     "Anime": "动画",
