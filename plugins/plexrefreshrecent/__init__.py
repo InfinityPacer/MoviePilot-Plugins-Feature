@@ -354,7 +354,7 @@ class PlexRefreshRecent(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'limit',
-                                            'label': '元数据数量',
+                                            'label': '最大元数据数量',
                                             'placeholder': '刷新的最大元数据数量'
                                         },
                                     }
