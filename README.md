@@ -36,7 +36,7 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 ![](images/2024-04-21-19-39-10.png)
 
-### 5. 刷新Plex元数据
+### 5. Plex元数据刷新
 
 - 定时通知Plex刷新最近入库元数据
 
