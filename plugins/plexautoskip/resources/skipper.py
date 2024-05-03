@@ -27,7 +27,8 @@ from app.plugins.plexautoskip.resources.sslAlertListener import SSLAlertListener
 
 
 class Skipper():
-    TROUBLESHOOT_URL = "https://github.com/mdhiggins/PlexAutoSkip/wiki/Troubleshooting"
+    TROUBLESHOOT_URL = "https://github.com/InfinityPacer/PlexAutoSkip/wiki/Troubleshooting"
+    PLUGIN_README_URL = "https://github.com/InfinityPacer/MoviePilot-Plugins/blob/main/README.md"
     ERRORS = {
         "FrameworkException: Unable to find player with identifier": "BadRequest Error, see %s#badrequest-error" % TROUBLESHOOT_URL,
         "HTTPError: HTTP Error 403: Forbidden": "Forbidden Error, see %s#forbidden-error" % TROUBLESHOOT_URL,
@@ -44,6 +45,18 @@ class Skipper():
         "Plex for Windows": "1.46.1",
         "Plex for Mac": "1.46.1",
         "Plex for Linux": "1.46.1"
+    }
+
+    SUPPORTED_CLIENTS = {
+        "Plex Web",
+        "Plex for Windows",
+        "Plex for Mac",
+        "Plex for Linux",
+        "Plex for Roku",
+        "Plex for Android (TV)",
+        "Plex for Android (Mobile)",
+        "Plex for iOS",
+        "Plex for Apple TV"
     }
 
     TIMEOUT = 30
@@ -429,6 +442,12 @@ class Skipper():
         return version.split("-")[0]
 
     def validPlayer(self, player: PlexClient) -> bool:
+        if player.product not in self.SUPPORTED_CLIENTS:
+            self.log.error(
+                "Unsupported %s version %s. This client is currently not supported. Please check %s for more information." % (
+                    player.product, player.version, self.PLUGIN_README_URL))
+            return False
+
         bad = self.BROKEN_CLIENTS.get(player.product)
         if bad and player.version and parse_version(self.safeVersion(player.version)) >= parse_version(bad):
             self.log.error(
