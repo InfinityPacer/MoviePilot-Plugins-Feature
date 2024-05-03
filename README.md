@@ -53,10 +53,34 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 - 实现拼音排序、搜索及类型标签中文本地化功能。
 
-##### 感谢
+#### 感谢
 
-  - 本插件基于 [plex_localization_zhcn](https://github.com/sqkkyzx/plex_localization_zhcn)，[plex-localization-zh](https://github.com/x1ao4/plex-localization-zh) 的代码，实现了插件的相关功能。
+  - 本插件基于 [plex_localization_zhcn](https://github.com/sqkkyzx/plex_localization_zhcn)，[plex-localization-zh](https://github.com/x1ao4/plex-localization-zh) 项目，实现了插件的相关功能。
   - 特此感谢 [timmy0209](https://github.com/timmy0209)、[sqkkyzx](https://github.com/sqkkyzx)、[x1ao4](https://github.com/x1ao4)、[anooki-c](https://github.com/anooki-c) 等贡献者的卓越代码贡献。
-  - 如有未能提及的作者，请告知以便我进行补充。
+  - 如有未能提及的作者，请告知我以便进行补充。
 
 ![](images/2024-04-28-03-04-40.png)
+
+### 7. [PlexAutoSkip](https://github.com/InfinityPacer/PlexAutoSkip)
+
+- 实现自动跳过Plex中片头、片尾以及类似的内容。
+- 目前支持的Plex客户端，参考如下
+  - Plex for iOS
+  - Plex for Apple TV
+- 由于Plex调整，部分客户端仅部分版本支持，仅供参考
+  - Plex Web
+  - Plex for Windows
+  - Plex for Mac
+  - Plex for Linux
+  - Plex for Roku
+  - Plex for Android (TV)
+  - Plex for Android (Mobile)
+- 相关汉化资料参考[说明](https://github.com/InfinityPacer/PlexAutoSkip/blob/master/README.md)以及[Wiki](https://github.com/InfinityPacer/PlexAutoSkip/wiki)
+
+#### 感谢
+
+  - 本插件基于 [PlexAutoSkip](https://github.com/mdhiggins/PlexAutoSkip) 项目，实现了插件的相关功能，特此感谢 [mdhiggins](https://github.com/mdhiggins) 的卓越代码贡献。
+  - 如有未能提及的作者，请告知我以便进行补充。
+
+![](images/2024-05-03-09-23-52.png)
+![](images/2024-05-03-09-27-11.png)
