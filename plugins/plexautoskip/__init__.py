@@ -75,6 +75,10 @@ class PlexAutoSkip(_PluginBase):
         return getLogger(__name__)
 
     def _start_auto_skip(self):
+        logger.info("已开启PlexAutoSkip，正在停止历史服务")
+
+        self.stop_service()
+
         logger.info("已开启PlexAutoSkip，正在初始化相关服务")
 
         try:
