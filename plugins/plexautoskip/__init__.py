@@ -173,7 +173,7 @@ class PlexAutoSkip(_PluginBase):
                                         'content': [
                                             {
                                                 'component': 'div',
-                                                'html': '基于 <a href="https://github.com/mdhiggins/PlexAutoSkip" target="_blank" style="text-decoration: underline;">PlexAutoSkip</a><span> 项目编写，特此感谢原作者 </span><a href="https://github.com/mdhiggins" target="_blank" style="text-decoration: underline;">mdhiggins 的卓越代码贡献</a>'
+                                                'html': '基于 <a href="https://github.com/mdhiggins/PlexAutoSkip" target="_blank" style="text-decoration: underline;">PlexAutoSkip</a><span> 项目编写，特此感谢原作者 </span><a href="https://github.com/mdhiggins" target="_blank" style="text-decoration: underline;">mdhiggins</a>'
                                             },
                                         ]
                                     }
