@@ -75,7 +75,7 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
   - Plex for Roku
   - Plex for Android (TV)
   - Plex for Android (Mobile)
-- 相关汉化资料参考[说明](https://github.com/InfinityPacer/PlexAutoSkip/blob/master/README.md)以及[Wiki](https://github.com/InfinityPacer/PlexAutoSkip/wiki)
+- 相关配置请参考[说明](https://github.com/InfinityPacer/PlexAutoSkip/blob/master/README.md)以及[Wiki](https://github.com/InfinityPacer/PlexAutoSkip/wiki)
 
 #### 感谢
 
