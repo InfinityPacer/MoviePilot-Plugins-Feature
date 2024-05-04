@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
+from app.core.context import MediaInfo
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.modules.plex import Plex
@@ -30,7 +31,7 @@ class PlexLocalization(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexlocalization.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -560,18 +561,21 @@ class PlexLocalization(_PluginBase):
         if not self._enabled:
             return
 
+        if not self._execute_transfer:
+            return
+
         event_info: dict = event.event_data
         if not event_info:
             return
 
-        if not settings.MEDIASERVER:
+        mediainfo: MediaInfo = event_info.get("mediainfo")
+        if not mediainfo:
             return
 
-        if "plex" not in settings.MEDIASERVER:
-            logger.info(f"Plex配置不正确，请检查")
-
         if self._delay:
-            logger.info(f"延迟 {self._delay} 秒后启动本地化服务... ")
+            logger.info(f"{mediainfo.title} 已入库，{self._delay} 秒执行一次本地化服务")
+        else:
+            logger.info(f"{mediainfo.title} 已入库，准备执行一次本地化服务")
 
         if not self._scheduler:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -588,7 +592,7 @@ class PlexLocalization(_PluginBase):
 
     def localization(self):
         with lock:
-            logger.info(f"正在准备本地化服务")
+            logger.info(f"正在准备执行本地化服务")
             libraries = self.__get_libraries()
             logger.info(f"正在准备本地化的媒体库 {libraries}")
             service = PlexService(translate_tags=self._tags, lock_meta=self._lock,
