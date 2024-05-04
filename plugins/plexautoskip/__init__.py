@@ -18,7 +18,7 @@ class PlexAutoSkip(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/PlexAutoSkip_C.png"
     # 插件版本
-    plugin_version = "0.3"
+    plugin_version = "0.4"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -75,11 +75,11 @@ class PlexAutoSkip(_PluginBase):
         return getLogger(__name__)
 
     def _start_auto_skip(self):
-        logger.info("已开启PlexAutoSkip，正在停止历史服务")
+        logger.info("已开启PlexAutoSkip，正在准备停止历史服务")
 
         self.stop_service()
 
-        logger.info("已开启PlexAutoSkip，正在初始化相关服务")
+        logger.info("正在初始化相关服务")
 
         try:
             log = self._get_logger(self.plugin_name.lower())

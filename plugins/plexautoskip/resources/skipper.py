@@ -377,26 +377,40 @@ class Skipper():
                 self.log.exception("Unable to create new on deck PlayQueue for %s" % (mediaWrapper))
 
         if not pq or not pq.items:
-            self.log.warning("No available PlayQueue data %d (%s), using seekTo to go to media end" % (
+            self.log.warning("No available PlayQueue data %d (%s), stopping" % (
                 mediaWrapper.playQueueID, mediaWrapper.media.playQueueItemID))
-            mediaWrapper.seekTo(mediaWrapper.media.duration - self.CREDIT_SKIP_FIX.get(player.product, 0), player)
+            # mediaWrapper.seekTo(mediaWrapper.media.duration - self.CREDIT_SKIP_FIX.get(player.product, 0), player)
             return True
 
         if pq.items[-1] == mediaWrapper.media:
-            self.log.debug("Seek target is the end but no more items in the PlayQueue, using seekTo to prevent loop")
+            self.log.info("Seek target is the end but no more items in the PlayQueue,"
+                          "using seekTo to prevent loop. Product: %s" % player.product)
             mediaWrapper.seekTo(mediaWrapper.media.duration - self.CREDIT_SKIP_FIX.get(player.product, 0), player)
         else:
-            self.log.debug("Seek target is the end, stop last media and play next")
+            self.log.info(f"Seek target is the end, stop current media and play next. Product: %s" % player.product)
             commandDelay = mediaWrapper.commandDelay or self.settings.commandDelay
             time.sleep(commandDelay / 1000)
             player.stop()
+            self.log.debug("Current media playing is stopped")
             time.sleep(commandDelay / 1000)
             # 部分设备SkipNext后，offset为0时，默认是结束，这里调整为10兼容处理
             player.playMedia(pq, offset=10)
-            # 部分设备SkipNext后，不会自动开始播放，这里兼容处理，5s内每个1s唤醒一次播放
-            for _ in range(5):
-                time.sleep(1)
-                player.play()
+            self.log.debug("Next media playing is start")
+            # 部分设备SkipNext后，不会自动开始播放，这里兼容处理，轮询10次延迟播放处理
+            for _ in range(10):
+                time.sleep(commandDelay / 1000)
+                if player.timeline:
+                    if player.timeline.state == 'playing' and player.timeline.time > 10:
+                        self.log.debug("Player is playing, stopping retry play")
+                        break
+                    else:
+                        self.log.debug(f"Player is not playing or viewOffset is not at the expected position, "
+                                       f"continuing retry play, "
+                                       f"state: {player.timeline.state}, time: {player.timeline.time}")
+                        player.play()
+                else:
+                    self.log.debug("Can't get player timeline, continuing retry play")
+                    player.play()
         return True
 
     def setVolume(self, mediaWrapper: MediaWrapper, volume: int, lowering: bool) -> None:
