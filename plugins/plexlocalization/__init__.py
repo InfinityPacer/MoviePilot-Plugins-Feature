@@ -15,6 +15,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.config import settings
 from app.core.context import MediaInfo
 from app.core.event import eventmanager, Event
+from app.core.meta import MetaBase
 from app.log import logger
 from app.modules.plex import Plex
 from app.plugins import _PluginBase
@@ -569,22 +570,29 @@ class PlexLocalization(_PluginBase):
             return
 
         mediainfo: MediaInfo = event_info.get("mediainfo")
-        if not mediainfo:
+        meta: MetaBase = event_info.get("meta")
+        if not mediainfo or not meta:
             return
 
-        if self._delay:
-            logger.info(f"{mediainfo.title} 已入库，{self._delay} 秒执行一次本地化服务")
-        else:
-            logger.info(f"{mediainfo.title} 已入库，准备执行一次本地化服务")
+        # 确定季度和集数信息，如果存在则添加前缀空格
+        season_episode = f" {meta.season_episode}" if meta.season_episode else ""
+
+        # 根据是否有延迟设置不同的日志消息
+        delay_message = f"{self._delay} 秒后执行一次本地化服务" if self._delay else "准备执行一次本地化服务"
+        logger.info(f"{mediainfo.title_year}{season_episode} 已入库，{delay_message}")
 
         if not self._scheduler:
             self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+
+        self._scheduler.remove_all_jobs()
+
         self._scheduler.add_job(
             func=self.localization,
             trigger="date",
             run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=self._delay),
             name="Plex中文本地化",
         )
+
         # 启动任务
         if self._scheduler.get_jobs():
             self._scheduler.print_jobs()
