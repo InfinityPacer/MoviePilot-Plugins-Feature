@@ -84,3 +84,14 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 ![](images/2024-05-03-09-23-52.png)
 ![](images/2024-05-03-09-27-11.png)
+
+### 8. PlexEdition
+
+- 根据入库记录修改Edition为电影版本/资源类型/特效信息，字段来源于[MOVIE_RENAME_FORMAT](https://github.com/jxxghp/MoviePilot?tab=readme-ov-file#2-%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F--%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6)中的**edition**版本（资源类型+特效）
+
+#### 感谢
+
+  - 本插件灵感来自于项目 [plex-edition-manager](https://github.com/x1ao4/plex-edition-manager) ，特此感谢 [x1ao4](https://github.com/x1ao4)。
+
+![](images/2024-05-08-02-51-29.png)
+![](images/2024-05-08-02-51-16.png)
