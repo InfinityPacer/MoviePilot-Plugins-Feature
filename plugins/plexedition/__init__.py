@@ -93,13 +93,13 @@ class PlexEdition(_PluginBase):
         except ValueError:
             self._thread_count = 5
         try:
-            self._delay = int(config.get("delay", 300))
+            self._delay = int(config.get("delay", 200))
         except ValueError:
-            self._delay = 300
+            self._delay = 200
 
-        # 如果开启了入库后执行一次，延迟时间又不填，默认为300s
+        # 如果开启了入库后执行一次，延迟时间又不填，默认为200s
         if self._execute_transfer and not self._delay:
-            self._delay = 300
+            self._delay = 200
 
         # 停止现有任务
         self.stop_service()
@@ -404,11 +404,11 @@ class PlexEdition(_PluginBase):
         ], {
             "enabled": False,
             "notify": True,
-            "cron": "0 1 * * *",
+            "cron": "30 0 * * *",
             "lock": False,
             "thread_count": 5,
             "execute_transfer": False,
-            "delay": 300
+            "delay": 200
         }
 
     def get_page(self) -> List[dict]:
