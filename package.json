@@ -101,5 +101,17 @@
             "v0.2": "增加客户端支持过滤，优化日志记录",
             "v0.1": "增加PlexAutoSkip插件，实现自动跳过Plex中片头、片尾以及类似的内容"
         }
+    },
+    "PlexEdition": {
+        "name": "PlexEdition",
+        "description": "根据入库记录修改Edition为电影版本/资源类型/特效信息。",
+        "labels": "Plex",
+        "version": "1.0",
+        "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexedition.png",
+        "author": "InfinityPacer",
+        "level": 1,
+        "history": {
+            "v1.0": "增加PlexAutoSkip插件，实现根据入库记录修改Edition为电影版本/资源类型/特效信息"
+        }
     }
 }
