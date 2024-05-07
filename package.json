@@ -111,7 +111,7 @@
         "author": "InfinityPacer",
         "level": 1,
         "history": {
-            "v1.0": "增加PlexAutoSkip插件，实现根据入库记录修改Edition为电影版本/资源类型/特效信息"
+            "v1.0": "增加PlexEdition插件，实现根据入库记录修改Edition为电影版本/资源类型/特效信息"
         }
     }
 }
