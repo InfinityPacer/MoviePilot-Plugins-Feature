@@ -38,10 +38,10 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 ### 5. Plex元数据刷新
 
-- 定时通知Plex刷新最近入库元数据
+- 定时通知Plex刷新最近入库元数据，从而支持部分剧集元数据更新滞后于发布日期，导致Plex没有及时更新
 
-![](images/2024-04-24-02-45-08.png)
 ![](images/2024-04-24-02-45-38.png)
+![](images/2024-04-24-02-45-08.png)
 
 ### 6. WebDAV备份
 
@@ -55,13 +55,15 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 #### 感谢
 
-  - 本插件基于 [plex_localization_zhcn](https://github.com/sqkkyzx/plex_localization_zhcn)，[plex-localization-zh](https://github.com/x1ao4/plex-localization-zh) 项目，实现了插件的相关功能。
-  - 特此感谢 [timmy0209](https://github.com/timmy0209)、[sqkkyzx](https://github.com/sqkkyzx)、[x1ao4](https://github.com/x1ao4)、[anooki-c](https://github.com/anooki-c) 等贡献者的卓越代码贡献。
-  - 如有未能提及的作者，请告知我以便进行补充。
+- 本插件基于 [plex_localization_zhcn](https://github.com/sqkkyzx/plex_localization_zhcn)，[plex-localization-zh](https://github.com/x1ao4/plex-localization-zh) 项目，实现了插件的相关功能。
+- 特此感谢 [timmy0209](https://github.com/timmy0209)、[sqkkyzx](https://github.com/sqkkyzx)、[x1ao4](https://github.com/x1ao4)、[anooki-c](https://github.com/anooki-c) 等贡献者的卓越代码贡献。
+- 如有未能提及的作者，请告知我以便进行补充。
 
+![](images/2024-05-09-03-56-17.png)
+![](images/2024-05-09-03-55-16.png)
 ![](images/2024-04-28-03-04-40.png)
 
-### 7. [PlexAutoSkip](https://github.com/InfinityPacer/PlexAutoSkip)
+### 8. [PlexAutoSkip](https://github.com/InfinityPacer/PlexAutoSkip)
 
 - 实现自动跳过Plex中片头、片尾以及类似的内容。
 - 目前支持的Plex客户端，参考如下
@@ -79,19 +81,20 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 #### 感谢
 
-  - 本插件基于 [PlexAutoSkip](https://github.com/mdhiggins/PlexAutoSkip) 项目，实现了插件的相关功能，特此感谢 [mdhiggins](https://github.com/mdhiggins) 的卓越代码贡献。
-  - 如有未能提及的作者，请告知我以便进行补充。
+- 本插件基于 [PlexAutoSkip](https://github.com/mdhiggins/PlexAutoSkip) 项目，实现了插件的相关功能，特此感谢 [mdhiggins](https://github.com/mdhiggins) 的卓越代码贡献。
+- 如有未能提及的作者，请告知我以便进行补充。
 
-![](images/2024-05-03-09-23-52.png)
 ![](images/2024-05-03-09-27-11.png)
+![](images/2024-05-03-09-23-52.png)
 
-### 8. PlexEdition
+### 9. PlexEdition
 
 - 根据入库记录修改Edition为电影版本/资源类型/特效信息，字段来源于[MOVIE_RENAME_FORMAT](https://github.com/jxxghp/MoviePilot?tab=readme-ov-file#2-%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F--%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6)中的**edition**版本（资源类型+特效）
 
 #### 感谢
 
-  - 本插件灵感来自于项目 [plex-edition-manager](https://github.com/x1ao4/plex-edition-manager) ，特此感谢 [x1ao4](https://github.com/x1ao4)。
+- 本插件灵感来自于项目 [plex-edition-manager](https://github.com/x1ao4/plex-edition-manager) ，特此感谢 [x1ao4](https://github.com/x1ao4)。
+- 如有未能提及的作者，请告知我以便进行补充。
 
-![](images/2024-05-08-02-51-29.png)
 ![](images/2024-05-08-02-51-16.png)
+![](images/2024-05-08-02-51-29.png)
