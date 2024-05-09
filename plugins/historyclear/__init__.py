@@ -1,18 +1,14 @@
 import os
-import re
 import shutil
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Dict, Tuple
-from urllib.parse import urljoin
-
-from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
+from app.db.transferhistory_oper import TransferHistoryOper
 from app.log import logger
 from app.plugins import _PluginBase
-from app.schemas import NotificationType
 
 lock = threading.Lock()
 
@@ -36,6 +32,8 @@ class HistoryClear(_PluginBase):
     plugin_order = 61
     # 可使用的用户级别
     auth_level = 1
+    # history_oper
+    _history_oper = None
 
     # region 私有属性
 
@@ -45,6 +43,7 @@ class HistoryClear(_PluginBase):
     # endregion
 
     def init_plugin(self, config: dict = None):
+        self._history_oper = TransferHistoryOper()
         if not config:
             return
 
@@ -290,12 +289,11 @@ class HistoryClear(_PluginBase):
             err_msg, success = self.__backup_files_to_local()
             if not success:
                 self.__log_and_notify("清理历史记录失败，备份过程中出现异常，请检查日志后重试")
-
-
-
+                return
+            self._history_oper.truncate()
+            self.__log_and_notify("历史记录已清理完成")
         except Exception as e:
-            msg = f"清理历史记录失败，请排查日志，错误：{e}"
-            self.__log_and_notify(msg)
+            self.__log_and_notify(f"清理历史记录失败，请排查日志，错误：{e}")
 
     def __backup_files_to_local(self) -> Tuple[str, bool]:
         """
@@ -311,6 +309,7 @@ class HistoryClear(_PluginBase):
             file_name = os.path.basename(local_file_path)
             config_path = Path(settings.CONFIG_PATH)
             backup_file_path = config_path / self.__class__.__name__ / "Backup" / file_name
+
             # 确保备份目录存在
             backup_file_path.parent.mkdir(parents=True, exist_ok=True)
             # 复制文件到备份路径
@@ -321,7 +320,7 @@ class HistoryClear(_PluginBase):
             logger.error(err_msg)
             return err_msg, False
         finally:
-            # 不论上传成功与否都清理本地文件
+            # 不论备份成功与否都清理本地临时文件
             if os.path.exists(local_file_path):
                 logger.info(f"清理本地临时文件：{local_file_path}")
                 os.remove(local_file_path)
@@ -334,7 +333,7 @@ class HistoryClear(_PluginBase):
         try:
             config_path = Path(settings.CONFIG_PATH)
             current_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-            backup_file_name = f"MoviePliot-Backup-{current_time}"
+            backup_file_name = f"MoviePilot-Backup-{current_time}"
             backup_path = config_path / backup_file_name
             zip_file_path = str(backup_path) + '.zip'
 
@@ -343,9 +342,7 @@ class HistoryClear(_PluginBase):
             logger.info(f"本地临时备份文件夹路径：{backup_path}")
 
             # 需要备份的文件列表
-            backup_files = [
-                config_path / "user.db"
-            ]
+            backup_files = [config_path / "user.db"]
 
             # 将文件复制到备份文件夹
             for file_path in backup_files:
@@ -356,7 +353,7 @@ class HistoryClear(_PluginBase):
             # 打包备份文件夹为ZIP
             logger.info(f"正在压缩备份文件: {zip_file_path}")
             shutil.make_archive(base_name=str(backup_path), format='zip', root_dir=str(backup_path))
-
+            logger.info(f"成功创建ZIP备份文件: {zip_file_path}")
             shutil.rmtree(backup_path)  # 删除临时备份文件夹
             logger.info(f"清理本地临时文件夹：{backup_path}")
 
