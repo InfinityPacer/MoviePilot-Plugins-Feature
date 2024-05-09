@@ -55,7 +55,6 @@ class HistoryClear(_PluginBase):
         self.update_config({})
         self.__clear()
 
-
     def get_state(self) -> bool:
         pass
 
