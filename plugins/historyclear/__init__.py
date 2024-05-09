@@ -132,6 +132,27 @@ class HistoryClear(_PluginBase):
                                     {
                                         'component': 'VAlert',
                                         'props': {
+                                            'type': 'error',
+                                            'variant': 'tonal',
+                                            'text': '警告：清理历史记录前请先对/config/user.db文件进行备份，以便出现异常后能够还原'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
                                             'text': '注意：目前仅支持一键清理历史记录，相关文件不会进行删除，请自行在文件系统中删除'
