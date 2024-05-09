@@ -26,7 +26,7 @@ class PlexEdition(_PluginBase):
     # 插件名称
     plugin_name = "PlexEdition"
     # 插件描述
-    plugin_desc = "根据入库记录修改Edition为电影版本/资源类型/特效信息"
+    plugin_desc = "根据入库记录修改Edition为电影版本/资源类型/特效信息。"
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/plexedition.png"
     # 插件版本
