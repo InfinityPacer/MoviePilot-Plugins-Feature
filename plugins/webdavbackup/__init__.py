@@ -28,7 +28,7 @@ class WebDAVBackup(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/webdavbackup.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -452,7 +452,7 @@ class WebDAVBackup(_PluginBase):
         try:
             config_path = Path(settings.CONFIG_PATH)
             current_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-            backup_file_name = f"MoviePliot-Backup-{current_time}"
+            backup_file_name = f"MoviePilot-Backup-{current_time}"
             backup_path = config_path / backup_file_name
             zip_file_path = str(backup_path) + '.zip'
 
@@ -476,7 +476,7 @@ class WebDAVBackup(_PluginBase):
             # 打包备份文件夹为ZIP
             logger.info(f"正在压缩备份文件: {zip_file_path}")
             shutil.make_archive(base_name=str(backup_path), format='zip', root_dir=str(backup_path))
-
+            logger.info(f"成功创建ZIP备份文件: {zip_file_path}")
             shutil.rmtree(backup_path)  # 删除临时备份文件夹
             logger.info(f"清理本地临时文件夹：{backup_path}")
 
@@ -490,14 +490,14 @@ class WebDAVBackup(_PluginBase):
         清理旧的WebDAV备份文件
         """
         # 定义备份文件的正则表达式模式
-        pattern = re.compile(r"MoviePliot-Backup-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip")
+        pattern = re.compile(r"MoviePilot-Backup-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip")
 
         # 清理WebDAV服务器上的旧备份
         try:
             remote_files = self._client.list('/')
             filtered_files = [f for f in remote_files if pattern.match(f)]
             sorted_files = sorted(filtered_files,
-                                  key=lambda x: datetime.strptime(x, "MoviePliot-Backup-%Y-%m-%d_%H-%M-%S.zip"))
+                                  key=lambda x: datetime.strptime(x, "MoviePilot-Backup-%Y-%m-%d_%H-%M-%S.zip"))
             excess_count = len(sorted_files) - max_count
 
             if excess_count > 0:

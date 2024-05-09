@@ -17,7 +17,7 @@ class HistoryClear(_PluginBase):
     # 插件名称
     plugin_name = "历史记录清理"
     # 插件描述
-    plugin_desc = "一键清理所有历史记录。"
+    plugin_desc = "一键清理历史记录。"
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/historyclear.png"
     # 插件版本
@@ -52,7 +52,9 @@ class HistoryClear(_PluginBase):
             self.__log_and_notify("未开启历史记录清理")
             return
 
-        self.__log_and_notify("已成功备份并清理历史记录")
+        self.update_config({})
+        self.__clear()
+
 
     def get_state(self) -> bool:
         pass
@@ -89,56 +91,8 @@ class HistoryClear(_PluginBase):
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'onlyonce',
-                                            'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify',
-                                            'label': '开启通知',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'digest_auth',
-                                            'label': '启用Digest认证'
+                                            'model': 'clear_history',
+                                            'label': '一键清理',
                                         }
                                     }
                                 ]
@@ -152,78 +106,14 @@ class HistoryClear(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 12
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VAlert',
                                         'props': {
-                                            'model': 'hostname',
-                                            'label': '服务器地址'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'login',
-                                            'label': '登录名'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'password',
-                                            'label': '登录密码'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'cron',
-                                            'label': '备份周期'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'max_count',
-                                            'label': '最大保留备份数'
+                                            'type': 'error',
+                                            'variant': 'tonal',
+                                            'text': '警告：清理历史记录后将导致后续无法从历史记录中找到下载路径以及媒体库路径，请慎重使用'
                                         }
                                     }
                                 ]
@@ -244,7 +134,29 @@ class HistoryClear(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '如备份失败，请检查日志，并确认WebDAV目录存在，如果存在中文字符，可以尝试进行Url编码后备份'
+                                            'text': '注意：目前仅支持一键清理历史记录，相关文件不会进行删除，请自行在文件系统中删除'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：执行清理前插件会备份数据库至路径：'
+                                                    '/config/plugins/HistoryClear/Backup/.zip，如有需要，请自行还原'
                                         }
                                     }
                                 ]
@@ -281,6 +193,7 @@ class HistoryClear(_PluginBase):
         pass
 
     def __clear(self):
+        """一键清理历史记录"""
         if not self._clear_history:
             return
 
@@ -288,10 +201,10 @@ class HistoryClear(_PluginBase):
             logger.info("开始执行历史记录清理")
             err_msg, success = self.__backup_files_to_local()
             if not success:
-                self.__log_and_notify("清理历史记录失败，备份过程中出现异常，请检查日志后重试")
+                self.__log_and_notify(f"清理历史记录失败，备份过程中出现异常: {err_msg}，请检查日志后重试")
                 return
             self._history_oper.truncate()
-            self.__log_and_notify("历史记录已清理完成")
+            self.__log_and_notify("已成功备份并清理历史记录")
         except Exception as e:
             self.__log_and_notify(f"清理历史记录失败，请排查日志，错误：{e}")
 
@@ -308,7 +221,7 @@ class HistoryClear(_PluginBase):
         try:
             file_name = os.path.basename(local_file_path)
             config_path = Path(settings.CONFIG_PATH)
-            backup_file_path = config_path / self.__class__.__name__ / "Backup" / file_name
+            backup_file_path = config_path / "plugins" / self.__class__.__name__ / "Backup" / file_name
 
             # 确保备份目录存在
             backup_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -320,7 +233,6 @@ class HistoryClear(_PluginBase):
             logger.error(err_msg)
             return err_msg, False
         finally:
-            # 不论备份成功与否都清理本地临时文件
             if os.path.exists(local_file_path):
                 logger.info(f"清理本地临时文件：{local_file_path}")
                 os.remove(local_file_path)
