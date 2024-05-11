@@ -93,7 +93,7 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 
 #### 感谢
 
-- 本插件灵感来自于项目 [plex-edition-manager](https://github.com/x1ao4/plex-edition-manager) ，特此感谢 [x1ao4](https://github.com/x1ao4)。
+- 灵感来自于项目 [plex-edition-manager](https://github.com/x1ao4/plex-edition-manager) ，特此感谢 [x1ao4](https://github.com/x1ao4)。
 - 如有未能提及的作者，请告知我以便进行补充。
 
 ![](images/2024-05-08-02-51-16.png)
@@ -109,4 +109,12 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 ![](images/2024-05-09-23-30-39.png)
 ![](images/2024-05-09-23-29-47.png)
 
+### 11. 天气
+
+- 支持在仪表盘中显示实时天气小部件，方便用户随时查看天气情况
+- 数据异常时，可前往[和风天气](https://www.qweather.com/)官网申请API密钥使用
+
+#### 感谢
+
+ - 天气数据来源于[和风天气](https://www.qweather.com/)，再次感谢[和风天气](https://www.qweather.com/)提供的服务
 

@@ -1,21 +1,30 @@
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures._base import as_completed
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Event
 from typing import Any, List, Dict, Tuple, Optional
+
+import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from playwright.sync_api import sync_playwright
+from starlette.responses import Response
 
 from app.core.config import settings
 from app.log import logger
 from app.plugins import _PluginBase
-from playwright.sync_api import sync_playwright
-from starlette.responses import Response
+from app.utils.http import RequestUtils
+
+lock = threading.Lock()
+scheduler_lock = threading.Lock()
 
 SCREENSHOT_DEVICES = {
     "mobile": "iPhone 13 Pro Max",
     # "mobile_landscape": "iPhone 13 Pro Max landscape",
     "pc": "iPad Pro 11 landscape",
 }
+
+IMAGES_PATH = settings.CONFIG_PATH / "temp" / "WeatherWidget" / "images"
+IMAGES_PATH.mkdir(parents=True, exist_ok=True)
+WEATHER_API_KEY = "bdd98ec1d87747f3a2e8b1741a5af796"
 
 
 class WeatherWidget(_PluginBase):
@@ -24,11 +33,11 @@ class WeatherWidget(_PluginBase):
     # 插件名称
     plugin_name = "天气"
     # 插件描述
-    plugin_desc = "仪表盘显示天气信息。"
+    plugin_desc = "支持在仪表盘中显示实时天气小部件。"
     # 插件图标
-    plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weather.png"
+    plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "0.1"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -36,7 +45,7 @@ class WeatherWidget(_PluginBase):
     # 插件配置项ID前缀
     plugin_config_prefix = "weatherwidget_"
     # 加载顺序
-    plugin_order = 1
+    plugin_order = 80
     # 可使用的用户级别
     auth_level = 1
 
@@ -47,26 +56,47 @@ class WeatherWidget(_PluginBase):
     # browser
     _browser = None
     # enable
-    _enable = None
-    # 退出事件
-    _event = Event()
+    _enabled = None
+    # clear_cache
+    _clear_cache = None
+    # location
+    _location = None
+    # weather_url
+    _weather_url = None
+    # weather_api_key
+    _weather_api_key = None
+    # last_screenshot_time
+    _last_screenshot_time = None
+    # min_screenshot_span
+    _min_screenshot_span = 5 * 60
+    # 定时器
     _scheduler = None
+    # 退出事件
+    _event = threading.Event()
 
     # endregion
 
     def init_plugin(self, config: dict = None):
-        self._playwright = sync_playwright().start()
-        self._browser = self._playwright.webkit.launch(headless=True)
-
         if not config:
             return
 
-        self._enable = config.get("enable", False)
+        self._enabled = config.get("enable", False)
+        self._clear_cache = config.get("clear_cache", False)
+        self._location = config.get("location", "")
+        self._weather_api_key = config.get("weather_api_key", "")
+        self._last_screenshot_time = None
 
-        self.__take_screenshots(location="shenzhen-101280601")
+        if self._clear_cache:
+            self.__save_data({})
+
+        if not self._location:
+            logger.error("位置不能为空")
+            return
+
+        self.__delay_init()
 
     def get_state(self) -> bool:
-        return self._enable
+        return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -94,12 +124,21 @@ class WeatherWidget(_PluginBase):
             "description": "获取天气图片",
         }]
 
-    @staticmethod
-    def __get_total_elements() -> List[dict]:
+    def __get_total_elements(self) -> List[dict]:
         """
         组装汇总元素
         """
-        image_path = Path(f"{settings.CONFIG_PATH}/temp/iphone_pro_element_screenshot.png")
+        exist = self.__check_image()
+        if not exist:
+            return [
+                {
+                    'component': 'div',
+                    'text': '暂无数据',
+                    'props': {
+                        'class': 'text-center',
+                    }
+                }
+            ]
 
         return [{
             'component': 'VRow',
@@ -114,14 +153,15 @@ class WeatherWidget(_PluginBase):
                             'component': 'VImg',
                             'props': {
                                 'src': f'/api/v1/plugin/WeatherWidget/image?'
-                                       f'path={image_path}&'
-                                       f'apikey={settings.API_TOKEN}',
+                                       f'location={self._location}&key={key}&'
+                                       f'apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
                                 'height': 'auto',
-                                'max-width': '100%'
+                                'max-width': '100%',
+                                'width': '100%'
                             }
                         }
                     ]
-                }
+                } for key in SCREENSHOT_DEVICES.keys()
             ]
         }]
 
@@ -150,8 +190,8 @@ class WeatherWidget(_PluginBase):
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
-            拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-            """
+        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
+        """
         return [
             {
                 'component': 'VForm',
@@ -160,20 +200,92 @@ class WeatherWidget(_PluginBase):
                         'component': 'VRow',
                         'content': [
                             {
+
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
                                         'component': 'VSwitch',
                                         'props': {
-                                            'model': 'enable',
-                                            'label': '启用',
-                                        }
+                                            'model': 'enabled',
+                                            'label': '启用插件',
+                                        },
                                     }
-                                ]
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'clear_cache',
+                                            'label': '清理缓存',
+                                        },
+                                    }
+                                ],
+                            },
+                            # {
+                            #     'component': 'VCol',
+                            #     'props': {
+                            #         'cols': 12,
+                            #         'md': 4
+                            #     },
+                            #     'content': [
+                            #         {
+                            #             'component': 'VSwitch',
+                            #             'props': {
+                            #                 'model': 'onlyonce',
+                            #                 'label': '立即运行一次',
+                            #             },
+                            #         }
+                            #     ],
+                            # }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'location',
+                                            'label': '位置',
+                                            'placeholder': '位置地点',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'weather_api_key',
+                                            'label': '密钥',
+                                            'placeholder': '和风天气API密钥',
+                                        },
+                                    }
+                                ],
                             }
                         ]
                     }
@@ -203,18 +315,34 @@ class WeatherWidget(_PluginBase):
         """
         退出插件
         """
-        pass
+        try:
+            if self._playwright:
+                self._playwright.stop()
+            if self._browser:
+                self._browser.close()
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._event.set()
+                    self._scheduler.shutdown()
+                    self._event.clear()
+                self._scheduler = None
+        except Exception as e:
+            logger.info(str(e))
 
-    @staticmethod
-    def get_weather_image(path: str, apikey: str) -> Any:
-        """
-        读取图片
-        """
+    def get_weather_image(self, location: str, key: str, apikey: str) -> Any:
+        """读取图片"""
         if apikey != settings.API_TOKEN:
             return None
-        if not path:
+        if not location:
+            logger.error("没有地址信息，获取天气图片失败")
             return None
-        path_obj = Path(path)
+        # 每次请求时，获取一次最新的图片信息
+        self.__delay_init()
+        # 这里实际上返回的是上一次的图片信息
+        path_obj = self.__get_latest_image(key=key)
+        if not path_obj:
+            return None
         if not path_obj.exists():
             return None
         if not path_obj.is_file():
@@ -224,64 +352,162 @@ class WeatherWidget(_PluginBase):
             return None
         return Response(content=path_obj.read_bytes(), media_type="image/jpeg")
 
-    def __update_config(self):
-        pass
+    def __delay_init(self):
+        """延迟加载数据"""
+        with scheduler_lock:
+            if self._enabled:
+                check_image = self.__check_image()
+                current_time = datetime.now(tz=pytz.timezone(settings.TZ))
+                if check_image and self._last_screenshot_time:
+                    time_since_last = (current_time - self._last_screenshot_time).total_seconds()
+                    if time_since_last < self._min_screenshot_span:
+                        logger.info(f"Wait for the minimum screenshot interval of {self._min_screenshot_span} seconds.")
+                        return  # 如果未达到最小时间间隔，则不继续执行
 
-    def __get_location(self):
-        # https://geoapi.qweather.com/v2/city/lookup?key=bdd98ec1d87747f3a2e8b1741a5af796&location=深圳&lang=zh
-        pass
+                self._last_screenshot_time = current_time
 
-    def __take_screenshots(self, location: str):
+                if not self._scheduler:
+                    self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+
+                if not self._scheduler.running:
+                    if len(self._scheduler.get_jobs()):
+                        logger.info("scheduler has job, clear")
+                        self._scheduler.remove_all_jobs()
+
+                    self._scheduler.add_job(
+                        func=self.__task_latest_screenshot,
+                        trigger="date",
+                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                        name="获取天气信息",
+                    )
+
+                    # 启动任务
+                    if self._scheduler.get_jobs():
+                        self._scheduler.print_jobs()
+                        self._scheduler.start()
+                else:
+                    logger.info("scheduler is running, not add task")
+
+    def __task_latest_screenshot(self):
+        """获取最新截图"""
+        self._weather_url = self.__get_weather_url()
+        if not self._weather_url:
+            logger.error("天气位置为空，获取天气截图失败")
+            return
+
+        self.__take_screenshots()
+
+    def __take_screenshots(self):
         """管理多设备截图任务"""
-        base_folder_path = settings.CONFIG_PATH / "plugins" / self.__class__.__name__ / "images"
-        base_folder_path.mkdir(parents=True, exist_ok=True)  # 确保基础路径存在
-        with ThreadPoolExecutor(max_workers=len(SCREENSHOT_DEVICES)) as executor:
-            futures = [
-                executor.submit(
-                    self.screenshot_element,
-                    location,
-                    key,
-                    device,  # 获取设备的详细配置
-                    base_folder_path
-                ) for key, device in SCREENSHOT_DEVICES.items()
-            ]
-            for future in futures:
-                try:
-                    future.result()  # 尝试获取任务结果
-                except Exception as e:
-                    logger.error(e)
+        with lock:
+            try:
+                with sync_playwright() as playwright:
+                    browser = playwright.chromium.launch(headless=True)
+                    try:
+                        for key, device in SCREENSHOT_DEVICES.items():
+                            self.__screenshot_element(playwright=playwright, browser=browser, key=key, device=device)
+                    except Exception as e:
+                        logger.error(f"browser failed: {str(e)}")
+                    finally:
+                        browser.close()
+            except Exception as e:
+                logger.error(f"take_screenshots failed: {str(e)}")
 
-    def __screenshot_element(self, location: str, key: str, device: str, base_folder_path: Path, timeout: int = 30):
+    def __screenshot_element(self, playwright, browser, key: str, device: str, timeout: int = 60):
         """执行单个截图任务"""
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        url = f"https://www.qweather.com/weather/{location}.html"
         selector = ".c-city-weather-current"
-        image_path = base_folder_path / f"weather_{key}_{timestamp}.png"
+        image_path = IMAGES_PATH / f"weather_{self._location}_{key}_{timestamp}.png"
 
-        logger.info(f"开始加载 {key} 页面: {url}")
-        context = self._browser.new_context(**self._playwright.devices[device])
+        logger.info(f"开始加载 {key} 页面: {self._weather_url}")
+        context = browser.new_context(**playwright.devices[device])
         page = context.new_page()
         try:
-            page.goto(url, wait_until='load', timeout=timeout * 1000)
+            page.goto(self._weather_url, wait_until='load', timeout=timeout * 1000)
             page.wait_for_selector(selector, timeout=timeout * 1000)
             logger.info(f"{key} 页面加载成功，标题: {page.title()}")
             element = page.query_selector(selector)
             if element:
                 element.screenshot(path=image_path)
                 logger.info(f"{key} 截图成功，截图路径: {image_path}")
-                self.__manage_images(base_folder_path, key)
+                self.__manage_images(key=key)
             else:
                 logger.warning(f"{key} 未找到指定的选择器: {selector}")
         except Exception as e:
-            logger.error(f"{key} 截图失败，URL: {url}, 错误：{e}")
+            logger.error(f"{key} 截图失败，URL: {self._weather_url}, 错误：{e}")
         finally:
             context.close()
 
-    @staticmethod
-    def __manage_images(folder_path: Path, key: str, max_files: int = 5):
+    def __manage_images(self, key: str, max_files: int = 5):
         """管理图片文件，确保每种类型最多保留 max_files 张"""
-        files = sorted(folder_path.glob(f"weather_{key}_*.png"), key=lambda x: x.stat().st_mtime)
+        files = sorted(IMAGES_PATH.glob(f"weather_{self._location}_{key}_*.png"), key=lambda x: x.stat().st_mtime)
         if len(files) > max_files:
             for file in files[:-max_files]:
                 file.unlink()
                 logger.info(f"删除旧图片: {file}")
+
+    def __check_image(self) -> bool:
+        """判断是否存在图片"""
+        files_exist = any(IMAGES_PATH.glob(f"weather_{self._location}_*.png"))
+        if not files_exist:
+            logger.error("No images found.")
+        return files_exist
+
+    def __get_latest_image(self, key: str) -> Optional[Path]:
+        """获取指定key的最新图片路径"""
+        # 搜索所有匹配的图片文件，并按修改时间排序
+        try:
+            latest_image = max(IMAGES_PATH.glob(f"weather_{self._location}_{key}_*.png"),
+                               key=lambda x: x.stat().st_mtime)
+            return latest_image
+        except ValueError:
+            logger.error(f"No images found for key: {key}")
+            return None
+
+    def __get_weather_api_key(self) -> str:
+        """获取天气api密钥"""
+        return self._weather_api_key if self._weather_api_key else WEATHER_API_KEY
+
+    def __get_weather_url(self) -> Optional[str]:
+        """获取天气Url"""
+        if not self._location:
+            logger.error("无法获取位置信息，获取天气Url失败")
+            return None
+
+        location_map = self.get_data("location")
+        if location_map:
+            weather_url = location_map.get(self._location, {}).get("fxLink")
+            if weather_url:
+                return weather_url
+        else:
+            location_map = {}
+
+        url = (f"https://geoapi.qweather.com/v2/city/lookup?"
+               f"key={self.__get_weather_api_key()}&location={self._location}&lang=zh")
+
+        response = RequestUtils().get_res(url)
+        logger.info(f"请求和风天气获取详情信息：{url}")
+        logger.info(f"响应信息: {response.text}")
+
+        if response.status_code != 200:
+            logger.error(f"连接和风天气失败, 状态码: {response.status_code}")
+            return None
+        else:
+            data = response.json()
+            if data.get('code') == "200":
+                remote_locations = data.get('location', [])
+                if remote_locations:
+                    first = remote_locations[0]
+                    logger.error(f"位置: {self._location} 获取到对应的详情为: {first}")
+                    weather_url = first.get("fxLink")
+                    if weather_url:
+                        location_map[self._location] = first
+                        self.__save_data(location_map)
+                        return weather_url
+
+        logger.error(f"连接和风天气成功, 但获取详情信息失败")
+        return None
+
+    def __save_data(self, data: dict):
+        """保存插件数据"""
+        self.save_data("location", data)
