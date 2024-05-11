@@ -127,17 +127,5 @@
         "history": {
             "v1.0": "增加历史记录清理插件，实现一键清理历史记录"
         }
-    },
-    "WeatherWidget": {
-        "name": "天气",
-        "description": "支持仪表板显示天气小部件。",
-        "labels": "工具",
-        "version": "0.1",
-        "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png",
-        "author": "InfinityPacer",
-        "level": 1,
-        "history": {
-            "v1.0": "增加天气插件，支持仪表板显示天气小部件"
-        }
     }
 }
