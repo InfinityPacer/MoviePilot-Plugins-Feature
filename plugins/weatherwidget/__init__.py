@@ -1,14 +1,15 @@
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures._base import as_completed
 from datetime import datetime
 from pathlib import Path
 from threading import Event
 from typing import Any, List, Dict, Tuple, Optional
 
-from playwright.sync_api import sync_playwright
-from starlette.responses import Response
-
 from app.core.config import settings
 from app.log import logger
 from app.plugins import _PluginBase
+from playwright.sync_api import sync_playwright
+from starlette.responses import Response
 
 SCREENSHOT_DEVICES = {
     "mobile": "iPhone 13 Pro Max",
@@ -62,7 +63,7 @@ class WeatherWidget(_PluginBase):
 
         self._enable = config.get("enable", False)
 
-        self.__screenshot_element(location="shenzhen-101280601")
+        self.__take_screenshots(location="shenzhen-101280601")
 
     def get_state(self) -> bool:
         return self._enable
@@ -230,34 +231,51 @@ class WeatherWidget(_PluginBase):
         # https://geoapi.qweather.com/v2/city/lookup?key=bdd98ec1d87747f3a2e8b1741a5af796&location=深圳&lang=zh
         pass
 
-    def __screenshot_element(self, location: str, timeout: int = 30):
-        """截图"""
+    def __take_screenshots(self, location: str):
+        """管理多设备截图任务"""
         base_folder_path = settings.CONFIG_PATH / "plugins" / self.__class__.__name__ / "images"
-        base_folder_path.mkdir(parents=True, exist_ok=True)
-        for key, device in SCREENSHOT_DEVICES.items():
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            url = f"https://www.qweather.com/weather/{location}.html"
-            selector = ".c-city-weather-current"
-            image_path = base_folder_path / f"weather_{key}_{timestamp}.png"
+        base_folder_path.mkdir(parents=True, exist_ok=True)  # 确保基础路径存在
+        with ThreadPoolExecutor(max_workers=len(SCREENSHOT_DEVICES)) as executor:
+            futures = [
+                executor.submit(
+                    self.screenshot_element,
+                    location,
+                    key,
+                    device,  # 获取设备的详细配置
+                    base_folder_path
+                ) for key, device in SCREENSHOT_DEVICES.items()
+            ]
+            for future in futures:
+                try:
+                    future.result()  # 尝试获取任务结果
+                except Exception as e:
+                    logger.error(e)
 
-            logger.info(f"开始加载 {key} 页面: {url}")
-            context = self._browser.new_context(**self._playwright.devices[device])
-            page = context.new_page()
-            try:
-                page.goto(url, wait_until='load', timeout=timeout * 1000)
-                page.wait_for_selector(selector, timeout=timeout * 1000)
-                logger.info(f"{key} 页面加载成功，标题: {page.title()}")
-                element = page.query_selector(selector)
-                if element:
-                    element.screenshot(path=image_path)
-                    logger.info(f"{key} 截图成功，截图路径: {image_path}")
-                    self.__manage_images(folder_path=base_folder_path, key=key)
-                else:
-                    logger.warning(f"{key} 未找到指定的选择器: {selector}")
-            except Exception as e:
-                logger.error(f"{key} 截图失败，URL: {url}，错误：{e}")
-            finally:
-                context.close()
+    def __screenshot_element(self, location: str, key: str, device: str, base_folder_path: Path, timeout: int = 30):
+        """执行单个截图任务"""
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        url = f"https://www.qweather.com/weather/{location}.html"
+        selector = ".c-city-weather-current"
+        image_path = base_folder_path / f"weather_{key}_{timestamp}.png"
+
+        logger.info(f"开始加载 {key} 页面: {url}")
+        context = self._browser.new_context(**self._playwright.devices[device])
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until='load', timeout=timeout * 1000)
+            page.wait_for_selector(selector, timeout=timeout * 1000)
+            logger.info(f"{key} 页面加载成功，标题: {page.title()}")
+            element = page.query_selector(selector)
+            if element:
+                element.screenshot(path=image_path)
+                logger.info(f"{key} 截图成功，截图路径: {image_path}")
+                self.__manage_images(base_folder_path, key)
+            else:
+                logger.warning(f"{key} 未找到指定的选择器: {selector}")
+        except Exception as e:
+            logger.error(f"{key} 截图失败，URL: {url}, 错误：{e}")
+        finally:
+            context.close()
 
     @staticmethod
     def __manage_images(folder_path: Path, key: str, max_files: int = 5):
