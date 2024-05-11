@@ -6,6 +6,7 @@ from typing import Any, List, Dict, Tuple, Optional
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from playwright.sync_api import sync_playwright
+from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import settings
@@ -19,7 +20,7 @@ scheduler_lock = threading.Lock()
 SCREENSHOT_DEVICES = {
     "mobile": "iPhone 13 Pro Max",
     # "mobile_landscape": "iPhone 13 Pro Max landscape",
-    "pc": "iPad Pro 11 landscape",
+    "desktop": "iPad Pro 11 landscape",
 }
 
 IMAGES_PATH = settings.CONFIG_PATH / "temp" / "WeatherWidget" / "images"
@@ -37,7 +38,7 @@ class WeatherWidget(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png"
     # 插件版本
-    plugin_version = "0.1"
+    plugin_version = "1.0"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -50,11 +51,6 @@ class WeatherWidget(_PluginBase):
     auth_level = 1
 
     # 私有属性
-    # 启用
-    # playwright
-    _playwright = None
-    # browser
-    _browser = None
     # enable
     _enabled = None
     # clear_cache
@@ -69,6 +65,10 @@ class WeatherWidget(_PluginBase):
     _last_screenshot_time = None
     # min_screenshot_span
     _min_screenshot_span = 5 * 60
+    # 截图超时时间
+    _screenshot_timeout = 3 * 60
+    # 天气刷新间隔
+    _refresh_interval = 1
     # 定时器
     _scheduler = None
     # 退出事件
@@ -80,7 +80,9 @@ class WeatherWidget(_PluginBase):
         if not config:
             return
 
-        self._enabled = config.get("enable", False)
+        self.stop_service()
+
+        self._enabled = config.get("enabled", False)
         self._clear_cache = config.get("clear_cache", False)
         self._location = config.get("location", "")
         self._weather_api_key = config.get("weather_api_key", "")
@@ -89,11 +91,18 @@ class WeatherWidget(_PluginBase):
         if self._clear_cache:
             self.__save_data({})
 
+        self.__update_config()
+
+        if not self._enabled:
+            return
+
         if not self._location:
             logger.error("位置不能为空")
             return
 
-        self.__delay_init()
+        if not self.__check_image():
+            logger.info("没有找到截图，立即执行一次截图任务")
+            self.__add_screenshot_task()
 
     def get_state(self) -> bool:
         return self._enabled
@@ -128,8 +137,7 @@ class WeatherWidget(_PluginBase):
         """
         组装汇总元素
         """
-        exist = self.__check_image()
-        if not exist:
+        if not self.__check_image():
             return [
                 {
                     'component': 'div',
@@ -141,27 +149,21 @@ class WeatherWidget(_PluginBase):
             ]
 
         return [{
-            'component': 'VRow',
+            'component': 'VCard',
+            'props': {
+                'variant': 'tonal',
+            },
             'content': [
                 {
-                    'component': 'VCol',
+                    'component': 'VImg',
                     'props': {
-                        'cols': 12
-                    },
-                    'content': [
-                        {
-                            'component': 'VImg',
-                            'props': {
-                                'src': f'/api/v1/plugin/WeatherWidget/image?'
-                                       f'location={self._location}&key={key}&'
-                                       f'apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
-                                'height': 'auto',
-                                'max-width': '100%',
-                                'width': '100%'
-                            }
-                        }
-                    ]
-                } for key in SCREENSHOT_DEVICES.keys()
+                        'src': f'/api/v1/plugin/WeatherWidget/image?'
+                               f'location={self._location}&apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
+                        'height': 'auto',
+                        'max-width': '100%',
+                        'width': '100%'
+                    }
+                }
             ]
         }]
 
@@ -180,7 +182,8 @@ class WeatherWidget(_PluginBase):
         """
         # 列配置
         cols = {
-            "cols": 12
+            "cols": 12,
+            "md": 4
         }
         # 全局配置
         attrs = {}
@@ -288,6 +291,67 @@ class WeatherWidget(_PluginBase):
                                 ],
                             }
                         ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：因涉及新增API，首次安装插件后需重启Docker后生效'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '天气数据来源于 '
+                                        },
+                                        'content': [
+                                            {
+                                                'component': 'a',
+                                                'props': {
+                                                    'href': 'https://www.qweather.com',
+                                                    'target': '_blank'
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'u',
+                                                        'text': '和风天气'
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'span',
+                                                'text': '，再次感谢和风天气（https://www.qweather.com）提供的服务'
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             }
@@ -309,17 +373,21 @@ class WeatherWidget(_PluginBase):
             "kwargs": {} # 定时器参数
         }]
         """
-        pass
+        if self._enabled:
+            return [{
+                "id": "RefreshWeather",
+                "name": "定时获取天气信息",
+                "trigger": "interval",
+                "func": self.__take_screenshots,
+                "kwargs": {"hours": self._refresh_interval}
+            }]
+        return []
 
     def stop_service(self):
         """
         退出插件
         """
         try:
-            if self._playwright:
-                self._playwright.stop()
-            if self._browser:
-                self._browser.close()
             if self._scheduler:
                 self._scheduler.remove_all_jobs()
                 if self._scheduler.running:
@@ -330,7 +398,16 @@ class WeatherWidget(_PluginBase):
         except Exception as e:
             logger.info(str(e))
 
-    def get_weather_image(self, location: str, key: str, apikey: str) -> Any:
+    def __update_config(self):
+        """保存插件配置"""
+        self.update_config(
+            {
+                "enabled": self._enabled,
+                "location": self._location,
+                "weather_api_key": self._weather_api_key
+            })
+
+    def get_weather_image(self, request: Request, location: str, apikey: str) -> Any:
         """读取图片"""
         if apikey != settings.API_TOKEN:
             return None
@@ -338,7 +415,10 @@ class WeatherWidget(_PluginBase):
             logger.error("没有地址信息，获取天气图片失败")
             return None
         # 每次请求时，获取一次最新的图片信息
-        self.__delay_init()
+        self.__add_screenshot_task()
+        # 获取UA
+        user_agent = request.headers.get('user-agent', 'Unknown User-Agent')
+        key = self.detect_device_type(user_agent=user_agent).lower()
         # 这里实际上返回的是上一次的图片信息
         path_obj = self.__get_latest_image(key=key)
         if not path_obj:
@@ -352,57 +432,62 @@ class WeatherWidget(_PluginBase):
             return None
         return Response(content=path_obj.read_bytes(), media_type="image/jpeg")
 
-    def __delay_init(self):
-        """延迟加载数据"""
-        with scheduler_lock:
-            if self._enabled:
-                check_image = self.__check_image()
-                current_time = datetime.now(tz=pytz.timezone(settings.TZ))
-                if check_image and self._last_screenshot_time:
-                    time_since_last = (current_time - self._last_screenshot_time).total_seconds()
-                    if time_since_last < self._min_screenshot_span:
-                        logger.info(f"Wait for the minimum screenshot interval of {self._min_screenshot_span} seconds.")
-                        return  # 如果未达到最小时间间隔，则不继续执行
-
-                self._last_screenshot_time = current_time
-
-                if not self._scheduler:
-                    self._scheduler = BackgroundScheduler(timezone=settings.TZ)
-
-                if not self._scheduler.running:
-                    if len(self._scheduler.get_jobs()):
-                        logger.info("scheduler has job, clear")
-                        self._scheduler.remove_all_jobs()
-
-                    self._scheduler.add_job(
-                        func=self.__task_latest_screenshot,
-                        trigger="date",
-                        run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                        name="获取天气信息",
-                    )
-
-                    # 启动任务
-                    if self._scheduler.get_jobs():
-                        self._scheduler.print_jobs()
-                        self._scheduler.start()
-                else:
-                    logger.info("scheduler is running, not add task")
-
-    def __task_latest_screenshot(self):
-        """获取最新截图"""
-        self._weather_url = self.__get_weather_url()
-        if not self._weather_url:
-            logger.error("天气位置为空，获取天气截图失败")
+    def __add_screenshot_task(self):
+        """添加截图任务"""
+        if not self._enabled:
             return
 
-        self.__take_screenshots()
+        if not self._scheduler:
+            self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+
+        if len(self._scheduler.get_jobs()):
+            logger.info("已经存在待执行的截图任务，清空任务并继续添加")
+            self._scheduler.remove_all_jobs()
+
+        self._scheduler.add_job(
+            func=self.__take_screenshots,
+            trigger="date",
+            run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+            name="获取一次天气信息",
+        )
+        logger.info("已添加截图任务，等待执行")
+        if self._scheduler.get_jobs():
+            self._scheduler.print_jobs()
+        if not self._scheduler.running:
+            self._scheduler.start()
+
+    def __update_with_log_screenshot_time(self, current_time: Optional[datetime]):
+        """更新截图时间"""
+        self._last_screenshot_time = current_time
+        if current_time:
+            logger.info(
+                f"截图记录更新，最后一次截图时间重置为 {self._last_screenshot_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            logger.info(f"截图记录更新，发生错误，最后一次截图时间重置为None")
 
     def __take_screenshots(self):
         """管理多设备截图任务"""
+        current_time = datetime.now(tz=pytz.timezone(settings.TZ))
+        if self._last_screenshot_time:
+            time_since_last = (current_time - self._last_screenshot_time).total_seconds()
+            if time_since_last < self._min_screenshot_span:
+                logger.info(f"截图过快，等待最小截图间隔 {self._min_screenshot_span} 秒")
+                return
+
+        self.__update_with_log_screenshot_time(current_time=current_time)
+
+        self._weather_url = self.__get_weather_url()
+        if not self._weather_url:
+            logger.error("无法获取天气请求地址，请检查配置")
+            self.__update_with_log_screenshot_time(current_time=None)
+            return
+
         with lock:
             try:
                 with sync_playwright() as playwright:
-                    browser = playwright.chromium.launch(headless=True)
+                    logger.info("正在准备截图服务，playwright服务启动中")
+                    self.__update_with_log_screenshot_time(current_time=current_time)
+                    browser = playwright.chromium.launch(headless=True, proxy=settings.PROXY_SERVER)
                     try:
                         for key, device in SCREENSHOT_DEVICES.items():
                             self.__screenshot_element(playwright=playwright, browser=browser, key=key, device=device)
@@ -413,28 +498,34 @@ class WeatherWidget(_PluginBase):
             except Exception as e:
                 logger.error(f"take_screenshots failed: {str(e)}")
 
-    def __screenshot_element(self, playwright, browser, key: str, device: str, timeout: int = 60):
+    def __screenshot_element(self, playwright, browser, key: str, device: str):
         """执行单个截图任务"""
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        current_time = datetime.now(tz=pytz.timezone(settings.TZ))
+        timestamp = current_time.strftime("%Y%m%d%H%M%S")
         selector = ".c-city-weather-current"
         image_path = IMAGES_PATH / f"weather_{self._location}_{key}_{timestamp}.png"
 
         logger.info(f"开始加载 {key} 页面: {self._weather_url}")
+        self.__update_with_log_screenshot_time(current_time=current_time)
         context = browser.new_context(**playwright.devices[device])
         page = context.new_page()
         try:
-            page.goto(self._weather_url, wait_until='load', timeout=timeout * 1000)
-            page.wait_for_selector(selector, timeout=timeout * 1000)
+            page.goto(self._weather_url, wait_until='load', timeout=self._screenshot_timeout * 1000)
+            page.wait_for_selector(selector, timeout=self._screenshot_timeout * 1000)
             logger.info(f"{key} 页面加载成功，标题: {page.title()}")
+            self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
             element = page.query_selector(selector)
             if element:
                 element.screenshot(path=image_path)
                 logger.info(f"{key} 截图成功，截图路径: {image_path}")
                 self.__manage_images(key=key)
+                self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
             else:
                 logger.warning(f"{key} 未找到指定的选择器: {selector}")
+                self.__update_with_log_screenshot_time(current_time=None)
         except Exception as e:
             logger.error(f"{key} 截图失败，URL: {self._weather_url}, 错误：{e}")
+            self.__update_with_log_screenshot_time(current_time=None)
         finally:
             context.close()
 
@@ -450,7 +541,7 @@ class WeatherWidget(_PluginBase):
         """判断是否存在图片"""
         files_exist = any(IMAGES_PATH.glob(f"weather_{self._location}_*.png"))
         if not files_exist:
-            logger.error("No images found.")
+            logger.error("没有找到图片信息")
         return files_exist
 
     def __get_latest_image(self, key: str) -> Optional[Path]:
@@ -461,7 +552,7 @@ class WeatherWidget(_PluginBase):
                                key=lambda x: x.stat().st_mtime)
             return latest_image
         except ValueError:
-            logger.error(f"No images found for key: {key}")
+            logger.error(f"{key}: 没有找到图片信息")
             return None
 
     def __get_weather_api_key(self) -> str:
@@ -498,8 +589,8 @@ class WeatherWidget(_PluginBase):
                 remote_locations = data.get('location', [])
                 if remote_locations:
                     first = remote_locations[0]
-                    logger.error(f"位置: {self._location} 获取到对应的详情为: {first}")
                     weather_url = first.get("fxLink")
+                    logger.info(f"位置: {self._location} 获取到对应的天气地址为: {weather_url}")
                     if weather_url:
                         location_map[self._location] = first
                         self.__save_data(location_map)
@@ -511,3 +602,20 @@ class WeatherWidget(_PluginBase):
     def __save_data(self, data: dict):
         """保存插件数据"""
         self.save_data("location", data)
+
+    @staticmethod
+    def detect_device_type(user_agent: str) -> str:
+        logger.info(f"detect_device_type user_agent: {user_agent}")
+        # 定义移动设备的关键字列表
+        mobile_keywords = ['Mobile', 'Android', 'iPhone', 'iPad']
+        # 定义桌面设备的关键字列表
+        desktop_keywords = ['Windows', 'Macintosh', 'Linux']
+
+        # 检查UA中是否包含移动设备的关键字
+        for keyword in mobile_keywords:
+            if keyword in user_agent:
+                logger.info(f"device_type is Mobile")
+                return 'Mobile'
+
+        logger.info(f"device_type is Desktop")
+        return 'Desktop'
