@@ -533,7 +533,7 @@ class WeatherWidget(_PluginBase):
         with browser.new_context(**playwright.devices[device]) as context:
             with context.new_page() as page:
                 try:
-                    page.goto(self._weather_url, wait_until='load', timeout=self._screenshot_timeout * 1000)
+                    page.goto(self._weather_url)
                     page.wait_for_selector(selector, timeout=self._screenshot_timeout * 1000)
                     logger.info(f"{key} 页面加载成功，标题: {page.title()}")
                     self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
