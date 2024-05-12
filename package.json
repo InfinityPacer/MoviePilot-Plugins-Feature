@@ -132,7 +132,7 @@
         "name": "天气",
         "description": "支持在仪表盘中显示实时天气小部件。",
         "labels": "工具",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png",
         "author": "InfinityPacer",
         "level": 1,
