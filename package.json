@@ -131,12 +131,13 @@
     "WeatherWidget": {
         "name": "天气",
         "description": "支持在仪表盘中显示实时天气小部件。",
-        "labels": "小部件",
+        "labels": "工具",
         "version": "1.0",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png",
         "author": "InfinityPacer",
         "level": 1,
         "history": {
+            "v1.1": "性能优化以及天气图片显示优化",
             "v1.0": "增加天气插件，支持在仪表盘中显示实时天气小部件"
         }
     }

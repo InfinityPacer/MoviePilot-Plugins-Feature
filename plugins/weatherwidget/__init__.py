@@ -38,7 +38,7 @@ class WeatherWidget(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -66,7 +66,7 @@ class WeatherWidget(_PluginBase):
     # min_screenshot_span
     _min_screenshot_span = 5 * 60
     # 截图超时时间
-    _screenshot_timeout = 3 * 60
+    _screenshot_timeout = 2 * 60
     # 天气刷新间隔
     _refresh_interval = 1
     # 定时器
@@ -327,6 +327,27 @@ class WeatherWidget(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
+                                            'text': '注意：数据异常时，可前往和风天气官网申请API密钥使用'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
                                             'text': '天气数据来源于 '
                                         },
                                         'content': [
@@ -470,8 +491,9 @@ class WeatherWidget(_PluginBase):
         current_time = datetime.now(tz=pytz.timezone(settings.TZ))
         if self._last_screenshot_time:
             time_since_last = (current_time - self._last_screenshot_time).total_seconds()
+            time_to_wait = self._min_screenshot_span - time_since_last
             if time_since_last < self._min_screenshot_span:
-                logger.info(f"截图过快，等待最小截图间隔 {self._min_screenshot_span} 秒")
+                logger.info(f"截图过快，最小截图间隔为 {self._min_screenshot_span} 秒。请在 {time_to_wait:.2f} 秒后重试。")
                 return
 
         self.__update_with_log_screenshot_time(current_time=current_time)
@@ -482,21 +504,22 @@ class WeatherWidget(_PluginBase):
             self.__update_with_log_screenshot_time(current_time=None)
             return
 
-        with lock:
-            try:
-                with sync_playwright() as playwright:
-                    logger.info("正在准备截图服务，playwright服务启动中")
-                    self.__update_with_log_screenshot_time(current_time=current_time)
-                    browser = playwright.chromium.launch(headless=True, proxy=settings.PROXY_SERVER)
-                    try:
-                        for key, device in SCREENSHOT_DEVICES.items():
+        try:
+            with sync_playwright() as playwright:
+                start_time = datetime.now()
+                logger.info("正在准备截图服务，playwright服务启动中")
+                self.__update_with_log_screenshot_time(current_time=current_time)
+                with playwright.chromium.launch(headless=True, proxy=settings.PROXY_SERVER) as browser:
+                    for key, device in SCREENSHOT_DEVICES.items():
+                        try:
+                            logger.info(f'{key} 正在启动 screenshot ...')
                             self.__screenshot_element(playwright=playwright, browser=browser, key=key, device=device)
-                    except Exception as e:
-                        logger.error(f"browser failed: {str(e)}")
-                    finally:
-                        browser.close()
-            except Exception as e:
-                logger.error(f"take_screenshots failed: {str(e)}")
+                            elapsed_time = datetime.now() - start_time
+                            logger.info(f'运行完毕，用时 {elapsed_time.total_seconds()} 秒')
+                        except Exception as e:
+                            logger.error(f"screenshot_element failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"take_screenshots failed: {str(e)}")
 
     def __screenshot_element(self, playwright, browser, key: str, device: str):
         """执行单个截图任务"""
@@ -507,27 +530,39 @@ class WeatherWidget(_PluginBase):
 
         logger.info(f"开始加载 {key} 页面: {self._weather_url}")
         self.__update_with_log_screenshot_time(current_time=current_time)
-        context = browser.new_context(**playwright.devices[device])
-        page = context.new_page()
-        try:
-            page.goto(self._weather_url, wait_until='load', timeout=self._screenshot_timeout * 1000)
-            page.wait_for_selector(selector, timeout=self._screenshot_timeout * 1000)
-            logger.info(f"{key} 页面加载成功，标题: {page.title()}")
-            self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
-            element = page.query_selector(selector)
-            if element:
-                element.screenshot(path=image_path)
-                logger.info(f"{key} 截图成功，截图路径: {image_path}")
-                self.__manage_images(key=key)
-                self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
-            else:
-                logger.warning(f"{key} 未找到指定的选择器: {selector}")
-                self.__update_with_log_screenshot_time(current_time=None)
-        except Exception as e:
-            logger.error(f"{key} 截图失败，URL: {self._weather_url}, 错误：{e}")
-            self.__update_with_log_screenshot_time(current_time=None)
-        finally:
-            context.close()
+        with browser.new_context(**playwright.devices[device]) as context:
+            with context.new_page() as page:
+                try:
+                    page.goto(self._weather_url, wait_until='load', timeout=self._screenshot_timeout * 1000)
+                    page.wait_for_selector(selector, timeout=self._screenshot_timeout * 1000)
+                    logger.info(f"{key} 页面加载成功，标题: {page.title()}")
+                    self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
+                    element = page.query_selector(selector)
+                    if element:
+                        # 获取元素的位置和尺寸
+                        box = element.bounding_box()
+                        if box:
+                            # 计算新的裁剪区域，每边缩进8px，从而避免border-radius
+                            clip = {
+                                "x": box["x"] + 8,
+                                "y": box["y"] + 8,
+                                "width": box["width"] - 16,
+                                "height": box["height"] - 16
+                            }
+                            # 截图并保存
+                            page.screenshot(path=image_path, clip=clip)
+                            logger.info(f"{key} 截图成功，截图路径: {image_path}")
+                        else:
+                            element.screenshot(path=image_path)
+                            logger.info(f"{key} 截图成功，截图路径: {image_path}")
+                        self.__manage_images(key=key)
+                        self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
+                    else:
+                        logger.warning(f"{key} 未找到指定的选择器: {selector}")
+                        self.__update_with_log_screenshot_time(current_time=None)
+                except Exception as e:
+                    logger.error(f"{key} 截图失败，URL: {self._weather_url}, 错误：{e}")
+                    self.__update_with_log_screenshot_time(current_time=None)
 
     def __manage_images(self, key: str, max_files: int = 5):
         """管理图片文件，确保每种类型最多保留 max_files 张"""
