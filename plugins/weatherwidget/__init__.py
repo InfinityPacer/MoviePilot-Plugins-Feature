@@ -1,3 +1,4 @@
+import shutil
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -10,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import settings
+from app.core.plugin import PluginManager
 from app.log import logger
 from app.plugins import _PluginBase
 from app.utils.http import RequestUtils
@@ -20,7 +22,8 @@ scheduler_lock = threading.Lock()
 SCREENSHOT_DEVICES = {
     "mobile": "iPhone 13 Pro Max",
     # "mobile_landscape": "iPhone 13 Pro Max landscape",
-    "desktop": "iPad Pro 11 landscape",
+    # "desktop": "iPad Pro 11 landscape",
+    "desktop": "iPad Pro 11",
 }
 
 IMAGES_PATH = settings.CONFIG_PATH / "temp" / "WeatherWidget" / "images"
@@ -59,8 +62,8 @@ class WeatherWidget(_PluginBase):
     _location = None
     # weather_url
     _weather_url = None
-    # weather_api_key
-    _weather_api_key = None
+    # location_url
+    _location_url = None
     # last_screenshot_time
     _last_screenshot_time = None
     # min_screenshot_span
@@ -82,14 +85,17 @@ class WeatherWidget(_PluginBase):
 
         self.stop_service()
 
+        logger.info(f"this is init_plugin instance, {id(self)}")
+
         self._enabled = config.get("enabled", False)
         self._clear_cache = config.get("clear_cache", False)
         self._location = config.get("location", "")
-        self._weather_api_key = config.get("weather_api_key", "")
+        self._location_url = config.get("location_url", "")
         self._last_screenshot_time = None
 
         if self._clear_cache:
             self.__save_data({})
+            self.__clear_image()
 
         self.__update_config()
 
@@ -97,7 +103,7 @@ class WeatherWidget(_PluginBase):
             return
 
         if not self._location:
-            logger.error("位置不能为空")
+            logger.error("城市不能为空")
             return
 
         if not self.__check_image():
@@ -125,9 +131,10 @@ class WeatherWidget(_PluginBase):
             "summary": "API说明"
         }]
         """
+
         return [{
             "path": "/image",
-            "endpoint": self.get_weather_image,
+            "endpoint": self.invoke_service,
             "methods": ["GET"],
             "summary": "获取天气图片",
             "description": "获取天气图片",
@@ -140,43 +147,66 @@ class WeatherWidget(_PluginBase):
         if not self.__check_image():
             return [
                 {
-                    'component': 'div',
-                    'text': '暂无数据',
-                    'props': {
-                        'class': 'text-center',
-                    }
+                    'component': 'VCardItem',
+                    'content': [
+                        {
+                            'component': 'div',
+                            'text': '暂无数据',
+                            'props': {
+                                'class': 'text-center'
+                            }
+                        }
+                    ]
                 }
             ]
 
-        return [{
-            'component': 'VCard',
-            'props': {
-                'variant': 'tonal',
-            },
-            'content': [
-                {
-                    'component': 'VImg',
-                    'props': {
-                        'src': f'/api/v1/plugin/WeatherWidget/image?'
-                               f'location={self._location}&apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
-                        'height': 'auto',
-                        'max-width': '100%',
-                        'width': '100%'
-                    }
-                }
-            ]
-        }]
+        return [
+            {
+                'component': 'VImg',
+                'props': {
+                    'src': f'/api/v1/plugin/WeatherWidget/image?'
+                           f'location={self._location}&apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
+                    'height': 'auto',
+                    'max-width': '100%',
+                    'width': '100%'
+                },
+                # 'content': [
+                #     {
+                #         'component': 'VCardText',
+                #         'props': {
+                #             'class': 'v-card-text w-full flex flex-row justify-start items-start absolute '
+                #                      'top-0 left-0 cursor-pointer pa-6'
+                #         },
+                #         'content': [
+                #             {
+                #                 'component': 'h1',
+                #                 'props': {
+                #                     'class': 'mb-1 font-bold line-clamp-2 overflow-hidden text-ellipsis ...',
+                #                     'style': {
+                #                         'color': 'black',
+                #                         'font-size': '1.10rem',
+                #                     }
+                #                 },
+                #                 'text': self._location
+                #
+                #             }
+                #         ]
+                #     }
+                # ]
+            }
+        ]
 
     def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
-        获取插件仪表盘页面，需要返回：1、仪表板col配置字典；2、全局配置（自动刷新等）；3、仪表板页面元素配置json（含数据）
+        获取插件仪表盘页面，需要返回：1、仪表板cols配置字典；2、全局配置（自动刷新等）；2、仪表板页面元素配置json（含数据）
         1、col配置参考：
         {
             "cols": 12, "md": 6
         }
         2、全局配置参考：
         {
-            "refresh": 10 // 自动刷新时间，单位秒
+            "refresh": 10, // 自动刷新时间，单位秒
+            "border": True, // 是否显示边框，默认True，为False时取消组件边框和边距，由插件自行控制
         }
         3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
         """
@@ -186,9 +216,22 @@ class WeatherWidget(_PluginBase):
             "md": 4
         }
         # 全局配置
-        attrs = {}
+        attrs = {
+            "border": False
+        }
         # 拼装页面元素
-        elements = self.__get_total_elements()
+        elements = [
+            {
+                'component': 'VCardItem',
+                'content': [
+                    {
+                        'component': 'VCardTitle',
+                        'text': f"{self._location}天气"
+                    }
+                ]
+            }
+        ]
+        elements.extend(self.__get_total_elements())
         return cols, attrs, elements
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -234,23 +277,7 @@ class WeatherWidget(_PluginBase):
                                         },
                                     }
                                 ],
-                            },
-                            # {
-                            #     'component': 'VCol',
-                            #     'props': {
-                            #         'cols': 12,
-                            #         'md': 4
-                            #     },
-                            #     'content': [
-                            #         {
-                            #             'component': 'VSwitch',
-                            #             'props': {
-                            #                 'model': 'onlyonce',
-                            #                 'label': '立即运行一次',
-                            #             },
-                            #         }
-                            #     ],
-                            # }
+                            }
                         ]
                     },
                     {
@@ -267,8 +294,8 @@ class WeatherWidget(_PluginBase):
                                         'component': 'VTextField',
                                         'props': {
                                             'model': 'location',
-                                            'label': '位置',
-                                            'placeholder': '位置地点',
+                                            'label': '城市',
+                                            'placeholder': '城市地点',
                                         },
                                     }
                                 ],
@@ -283,13 +310,13 @@ class WeatherWidget(_PluginBase):
                                     {
                                         'component': 'VTextField',
                                         'props': {
-                                            'model': 'weather_api_key',
-                                            'label': '密钥',
-                                            'placeholder': '和风天气API密钥',
+                                            'model': 'location_url',
+                                            'label': '城市链接',
+                                            'placeholder': '和风天气的城市天气链接',
                                         },
                                     }
                                 ],
-                            }
+                            },
                         ]
                     },
                     {
@@ -306,7 +333,7 @@ class WeatherWidget(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '注意：因涉及新增API，首次安装插件后需重启Docker后生效'
+                                            'text': '注意：因涉及新增API，安装/更新插件后需重启Docker后生效'
                                         }
                                     }
                                 ]
@@ -327,7 +354,30 @@ class WeatherWidget(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '注意：数据异常时，可前往和风天气官网申请API密钥使用'
+                                            'text': '注意：可以在和风天气官网获取对应链接精确定位城市，如「秦淮区」的链接为'
+                                                    'https://www.qweather.com/weather/qinhuai-101190109.html，'
+                                                    '则在城市链接填写 qinhuai-101190109'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：数据异常时，可通过填写城市链接精确定位城市'
                                         }
                                     }
                                 ]
@@ -381,7 +431,7 @@ class WeatherWidget(_PluginBase):
         }
 
     def get_page(self) -> List[dict]:
-        return self.__get_total_elements()
+        pass
 
     def get_service(self) -> List[Dict[str, Any]]:
         """
@@ -425,11 +475,20 @@ class WeatherWidget(_PluginBase):
             {
                 "enabled": self._enabled,
                 "location": self._location,
-                "weather_api_key": self._weather_api_key
+                "location_url": self._location_url
             })
+
+    def invoke_service(self, request: Request, location: str, apikey: str) -> Any:
+        """invokeService"""
+        return PluginManager().run_plugin_method(self.__class__.__name__, "get_weather_image", **{
+            "request": request,
+            "location": location,
+            "apikey": apikey
+        })
 
     def get_weather_image(self, request: Request, location: str, apikey: str) -> Any:
         """读取图片"""
+
         if apikey != settings.API_TOKEN:
             return None
         if not location:
@@ -488,6 +547,7 @@ class WeatherWidget(_PluginBase):
 
     def __take_screenshots(self):
         """管理多设备截图任务"""
+        IMAGES_PATH.mkdir(parents=True, exist_ok=True)
         current_time = datetime.now(tz=pytz.timezone(settings.TZ))
         if self._last_screenshot_time:
             time_since_last = (current_time - self._last_screenshot_time).total_seconds()
@@ -590,15 +650,19 @@ class WeatherWidget(_PluginBase):
             logger.error(f"{key}: 没有找到图片信息")
             return None
 
-    def __get_weather_api_key(self) -> str:
+    @staticmethod
+    def __get_weather_api_key() -> str:
         """获取天气api密钥"""
-        return self._weather_api_key if self._weather_api_key else WEATHER_API_KEY
+        return WEATHER_API_KEY
 
     def __get_weather_url(self) -> Optional[str]:
         """获取天气Url"""
         if not self._location:
-            logger.error("无法获取位置信息，获取天气Url失败")
+            logger.error("没有配置城市，无法获取对应的城市天气链接")
             return None
+
+        if self._location_url:
+            return f"https://www.qweather.com/weather/{self._location_url}.html"
 
         location_map = self.get_data("location")
         if location_map:
@@ -625,7 +689,7 @@ class WeatherWidget(_PluginBase):
                 if remote_locations:
                     first = remote_locations[0]
                     weather_url = first.get("fxLink")
-                    logger.info(f"位置: {self._location} 获取到对应的天气地址为: {weather_url}")
+                    logger.info(f"城市: {self._location} 获取到对应的城市天气链接为: {weather_url}")
                     if weather_url:
                         location_map[self._location] = first
                         self.__save_data(location_map)
@@ -637,6 +701,16 @@ class WeatherWidget(_PluginBase):
     def __save_data(self, data: dict):
         """保存插件数据"""
         self.save_data("location", data)
+
+    def __clear_image(self):
+        """清理缓存图片"""
+        # 检查目录是否存在
+        if IMAGES_PATH.exists():
+            # 删除目录及其所有内容
+            shutil.rmtree(IMAGES_PATH)
+            logger.info(f"目录 {IMAGES_PATH} 已清理")
+        else:
+            logger.info(f"目录 {IMAGES_PATH} 不存在")
 
     @staticmethod
     def detect_device_type(user_agent: str) -> str:

@@ -112,14 +112,14 @@ MoviePilot环境变量添加本项目地址，具体参见 https://github.com/jx
 ### 11. 天气
 
 - 支持在仪表盘中显示实时天气小部件，方便用户随时查看天气情况
-- 数据异常时，可前往[和风天气](https://www.qweather.com/)官网申请API密钥使用
+- 通过在和风天气官网获取对应链接精确定位城市，如「[秦淮区](https://www.qweather.com/weather/qinhuai-101190109.html)」的链接填写为「qinhuai-101190109」
+- 因涉及新增API，安装/更新插件后需重启Docker后生效
 
 #### 感谢
 
  - 天气数据来源于[和风天气](https://www.qweather.com/)，再次感谢[和风天气](https://www.qweather.com/)提供的服务
 
 
-<img src="images/2024-05-12-00-33-50.png" width="300" alt="示例图片">
-
-![](images/2024-05-12-00-35-22.png)
+![](images/2024-05-15-01-54-21.png)
+![](images/2024-05-15-01-54-38.png)
 
