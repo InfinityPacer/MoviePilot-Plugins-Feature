@@ -76,6 +76,7 @@ class BrushConfig:
         self.downloader_monitor = config.get("downloader_monitor")
         self.qb_category = config.get("qb_category")
         self.auto_qb_category = config.get("auto_qb_category", False)
+        self.qb_first_last_piece = config.get("qb_first_last_piece", False)
 
         self.brush_tag = "刷流"
         # 站点独立配置
@@ -119,6 +120,7 @@ class BrushConfig:
             "proxy_delete",
             "qb_category",
             "auto_qb_category",
+            "qb_first_last_piece",
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -185,7 +187,8 @@ class BrushConfig:
     "proxy_download": false,
     "proxy_delete": false,
     "qb_category": "刷流",
-    "auto_qb_category": true
+    "auto_qb_category": true,
+    "qb_first_last_piece": true
 }]"""
         return desc + config
 
@@ -251,7 +254,7 @@ class BrushFlowLowFreq(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "3.1"
+    plugin_version = "3.2"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -1656,8 +1659,8 @@ class BrushFlowLowFreq(_PluginBase):
                                                     {
                                                         'component': 'VSwitch',
                                                         'props': {
-                                                            'model': 'log_more',
-                                                            'label': '记录更多日志',
+                                                            'model': 'qb_first_last_piece',
+                                                            'label': '优先下载首尾文件块',
                                                         }
                                                     }
                                                 ]
@@ -1667,6 +1670,22 @@ class BrushFlowLowFreq(_PluginBase):
                                     {
                                         'component': 'VRow',
                                         "content": [
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 4
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VSwitch',
+                                                        'props': {
+                                                            'model': 'log_more',
+                                                            'label': '记录更多日志',
+                                                        }
+                                                    }
+                                                ]
+                                            },
                                             {
                                                 'component': 'VCol',
                                                 'props': {
@@ -1886,6 +1905,7 @@ class BrushFlowLowFreq(_PluginBase):
             "log_more": False,
             "downloader_monitor": False,
             "auto_qb_category": False,
+            "qb_first_last_piece": False,
             "site_config": BrushConfig.get_demo_site_config()
         }
 
@@ -3153,6 +3173,7 @@ class BrushFlowLowFreq(_PluginBase):
             "downloader_monitor": brush_config.downloader_monitor,
             "qb_category": brush_config.qb_category,
             "auto_qb_category": brush_config.auto_qb_category,
+            "qb_first_last_piece": brush_config.qb_first_last_piece,
             "enable_site_config": brush_config.enable_site_config,
             "site_config": brush_config.site_config,
             "_tabs": self._tabs
@@ -3305,6 +3326,7 @@ class BrushFlowLowFreq(_PluginBase):
                                               tag=["已整理", brush_config.brush_tag, tag],
                                               category=brush_config.qb_category,
                                               is_auto=brush_config.auto_qb_category,
+                                              is_first_last_piece_priority=brush_config.qb_first_last_piece,
                                               upload_limit=up_speed,
                                               download_limit=down_speed)
                 if not state:
@@ -3354,6 +3376,7 @@ class BrushFlowLowFreq(_PluginBase):
                          category: str = None,
                          cookie=None,
                          is_auto=False,
+                         is_first_last_piece_priority=False,
                          **kwargs
                          ) -> bool:
         """
@@ -3397,7 +3420,7 @@ class BrushFlowLowFreq(_PluginBase):
                                                is_paused=is_paused,
                                                tags=tags,
                                                use_auto_torrent_management=is_auto,
-                                               is_sequential_download=settings.QB_SEQUENTIAL,
+                                               is_first_last_piece_priority=is_first_last_piece_priority,
                                                cookie=cookie,
                                                category=category,
                                                **kwargs)
