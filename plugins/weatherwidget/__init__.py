@@ -85,8 +85,6 @@ class WeatherWidget(_PluginBase):
 
         self.stop_service()
 
-        logger.info(f"this is init_plugin instance, {id(self)}")
-
         self._enabled = config.get("enabled", False)
         self._clear_cache = config.get("clear_cache", False)
         self._location = config.get("location", "")
@@ -354,7 +352,7 @@ class WeatherWidget(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '注意：可以在和风天气官网获取对应链接精确定位城市，如「秦淮区」的链接为'
+                                            'text': '注意：通过在和风天气官网获取对应链接精确定位城市，如「秦淮区」的链接为'
                                                     'https://www.qweather.com/weather/qinhuai-101190109.html，'
                                                     '则在城市链接填写 qinhuai-101190109'
                                         }
