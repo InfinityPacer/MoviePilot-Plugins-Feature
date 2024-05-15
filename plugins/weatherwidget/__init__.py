@@ -198,7 +198,7 @@ class WeatherWidget(_PluginBase):
                             'position': 'relative',
                             'height': 'auto',
                             'background': 'linear-gradient(225deg, #fee5ca, #e9f0ff 55%, #dce3fb)',
-                            'padding': "0 0 1.25rem"
+                            'padding': "0.625rem 0"
                         }
                     },
                     'content': [
@@ -217,21 +217,15 @@ class WeatherWidget(_PluginBase):
                             'component': 'VCardText',
                             'props': {
                                 'class': 'v-card-text w-full flex flex-row justify-start items-start absolute '
-                                         'top-0 left-0 cursor-pointer',
-                                'style': {
-                                    'padding': '1.25rem'
-                                }
+                                         'top-0 left-0 cursor-pointer'
                             },
                             'content': [
                                 {
-                                    'component': 'span',
+                                    'component': 'VCardTitle',
                                     'props': {
                                         'class': 'mb-1 font-bold line-clamp-2 overflow-hidden text-ellipsis ...',
                                         'style': {
-                                            'color': 'black',
-                                            'font-size': '1.25rem',
-                                            'line-wight': '2rem',
-                                            'font-wight': '500',
+                                            'color': 'black'
                                         }
                                     },
                                     'text': self._location
