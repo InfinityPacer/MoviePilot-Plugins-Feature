@@ -20,10 +20,26 @@ lock = threading.Lock()
 scheduler_lock = threading.Lock()
 
 SCREENSHOT_DEVICES = {
-    "mobile": "iPhone 13 Pro Max",
-    # "mobile_landscape": "iPhone 13 Pro Max landscape",
-    # "desktop": "iPad Pro 11 landscape",
-    "desktop": "iPad Pro 11",
+    "default": {
+        "mobile": {
+            "device": "iPhone 13 Pro Max",
+            "size": {}
+        },
+        "desktop": {
+            "device": "iPad Pro 11",
+            "size": {'width': 740, 'height': 1024}
+        }
+    },
+    "border": {
+        "mobile": {
+            "device": "iPhone 13 Pro Max",
+            "size": {}
+        },
+        "desktop": {
+            "device": "iPad Pro 11",
+            "size": {}
+        }
+    }
 }
 
 IMAGES_PATH = settings.CONFIG_PATH / "temp" / "WeatherWidget" / "images"
@@ -41,7 +57,7 @@ class WeatherWidget(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -56,6 +72,8 @@ class WeatherWidget(_PluginBase):
     # 私有属性
     # enable
     _enabled = None
+    # border
+    _border = None
     # clear_cache
     _clear_cache = None
     # location
@@ -70,6 +88,8 @@ class WeatherWidget(_PluginBase):
     _min_screenshot_span = 5 * 60
     # 截图超时时间
     _screenshot_timeout = 2 * 60
+    # 截图类型
+    _screenshot_type = None
     # 天气刷新间隔
     _refresh_interval = 1
     # 定时器
@@ -86,10 +106,12 @@ class WeatherWidget(_PluginBase):
         self.stop_service()
 
         self._enabled = config.get("enabled", False)
+        self._border = config.get("border", False)
         self._clear_cache = config.get("clear_cache", False)
         self._location = config.get("location", "")
         self._location_url = config.get("location_url", "")
         self._last_screenshot_time = None
+        self._screenshot_type = self.__get_screenshot_type()
 
         if self._clear_cache:
             self.__save_data({})
@@ -142,57 +164,83 @@ class WeatherWidget(_PluginBase):
         """
         组装汇总元素
         """
-        if not self.__check_image():
+
+        if self._border:
             return [
                 {
                     'component': 'VCardItem',
                     'content': [
                         {
-                            'component': 'div',
-                            'text': '暂无数据',
+                            'component': 'VCardTitle',
+                            'text': f"{self._location}"
+                        }
+                    ]
+                },
+                {
+                    'component': 'VImg',
+                    'props': {
+                        'src': f'/api/v1/plugin/WeatherWidget/image?'
+                               f'location={self._location}&apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
+                        'height': 'auto',
+                        'max-width': '100%',
+                        'width': '100%',
+                        'cover': True,
+                    }
+                }
+            ]
+        else:
+            return [
+                {
+                    'component': 'VCardItem',
+                    'props': {
+                        'class': 'w-full',
+                        'style': {
+                            'position': 'relative',
+                            'height': 'auto',
+                            'background': 'linear-gradient(225deg, #fee5ca, #e9f0ff 55%, #dce3fb)',
+                            'padding': "0 0 1.25rem"
+                        }
+                    },
+                    'content': [
+                        {
+                            'component': 'VImg',
                             'props': {
-                                'class': 'text-center'
+                                'src': f'/api/v1/plugin/WeatherWidget/image?'
+                                       f'location={self._location}&apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
+                                'height': '310px',
+                                'max-width': '100%',
+                                'width': '100%',
+                                'cover': True,
                             }
+                        },
+                        {
+                            'component': 'VCardText',
+                            'props': {
+                                'class': 'v-card-text w-full flex flex-row justify-start items-start absolute '
+                                         'top-0 left-0 cursor-pointer',
+                                'style': {
+                                    'padding': '1.25rem'
+                                }
+                            },
+                            'content': [
+                                {
+                                    'component': 'span',
+                                    'props': {
+                                        'class': 'mb-1 font-bold line-clamp-2 overflow-hidden text-ellipsis ...',
+                                        'style': {
+                                            'color': 'black',
+                                            'font-size': '1.25rem',
+                                            'line-wight': '2rem',
+                                            'font-wight': '500',
+                                        }
+                                    },
+                                    'text': self._location
+                                }
+                            ]
                         }
                     ]
                 }
             ]
-
-        return [
-            {
-                'component': 'VImg',
-                'props': {
-                    'src': f'/api/v1/plugin/WeatherWidget/image?'
-                           f'location={self._location}&apikey={settings.API_TOKEN}&t={datetime.now().timestamp()}',
-                    'height': 'auto',
-                    'max-width': '100%',
-                    'width': '100%'
-                },
-                # 'content': [
-                #     {
-                #         'component': 'VCardText',
-                #         'props': {
-                #             'class': 'v-card-text w-full flex flex-row justify-start items-start absolute '
-                #                      'top-0 left-0 cursor-pointer pa-6'
-                #         },
-                #         'content': [
-                #             {
-                #                 'component': 'h1',
-                #                 'props': {
-                #                     'class': 'mb-1 font-bold line-clamp-2 overflow-hidden text-ellipsis ...',
-                #                     'style': {
-                #                         'color': 'black',
-                #                         'font-size': '1.10rem',
-                #                     }
-                #                 },
-                #                 'text': self._location
-                #
-                #             }
-                #         ]
-                #     }
-                # ]
-            }
-        ]
 
     def get_dashboard(self) -> Optional[Tuple[Dict[str, Any], Dict[str, Any], List[dict]]]:
         """
@@ -208,6 +256,8 @@ class WeatherWidget(_PluginBase):
         }
         3、页面配置使用Vuetify组件拼装，参考：https://vuetifyjs.com/
         """
+        exist_images = self.__check_image()
+
         # 列配置
         cols = {
             "cols": 12,
@@ -215,21 +265,27 @@ class WeatherWidget(_PluginBase):
         }
         # 全局配置
         attrs = {
-            "border": False
+            "border": not exist_images
         }
+
         # 拼装页面元素
-        elements = [
-            {
-                'component': 'VCardItem',
-                'content': [
-                    {
-                        'component': 'VCardTitle',
-                        'text': f"{self._location}天气"
-                    }
-                ]
-            }
-        ]
-        elements.extend(self.__get_total_elements())
+        if not exist_images:
+            elements = [
+                {
+                    'component': 'VCardItem',
+                    'content': [
+                        {
+                            'component': 'div',
+                            'text': '暂无数据',
+                            'props': {
+                                'class': 'text-center'
+                            }
+                        }
+                    ]
+                }
+            ]
+        else:
+            elements = self.__get_total_elements()
         return cols, attrs, elements
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -256,6 +312,22 @@ class WeatherWidget(_PluginBase):
                                         'props': {
                                             'model': 'enabled',
                                             'label': '启用插件',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'border',
+                                            'label': '显示边框',
                                         },
                                     }
                                 ],
@@ -425,7 +497,8 @@ class WeatherWidget(_PluginBase):
                 ]
             }
         ], {
-            "enabled": False
+            "enabled": False,
+            "border": False
         }
 
     def get_page(self) -> List[dict]:
@@ -461,7 +534,7 @@ class WeatherWidget(_PluginBase):
                 self._scheduler.remove_all_jobs()
                 if self._scheduler.running:
                     self._event.set()
-                    self._scheduler.shutdown()
+                    # self._scheduler.shutdown()
                     self._event.clear()
                 self._scheduler = None
         except Exception as e:
@@ -472,6 +545,7 @@ class WeatherWidget(_PluginBase):
         self.update_config(
             {
                 "enabled": self._enabled,
+                "border": self._border,
                 "location": self._location,
                 "location_url": self._location_url
             })
@@ -567,8 +641,11 @@ class WeatherWidget(_PluginBase):
                 start_time = datetime.now()
                 logger.info("正在准备截图服务，playwright服务启动中")
                 self.__update_with_log_screenshot_time(current_time=current_time)
+                screenshot_devices = self.__get_screenshot_device()
+                if not screenshot_devices:
+                    logger.error("获取截图设备失败，请检查")
                 with playwright.chromium.launch(headless=True, proxy=settings.PROXY_SERVER) as browser:
-                    for key, device in SCREENSHOT_DEVICES.items():
+                    for key, device in screenshot_devices.items():
                         try:
                             logger.info(f'{key} 正在启动 screenshot ...')
                             self.__screenshot_element(playwright=playwright, browser=browser, key=key, device=device)
@@ -579,18 +656,22 @@ class WeatherWidget(_PluginBase):
         except Exception as e:
             logger.error(f"take_screenshots failed: {str(e)}")
 
-    def __screenshot_element(self, playwright, browser, key: str, device: str):
+    def __screenshot_element(self, playwright, browser, key: str, device: dict):
         """执行单个截图任务"""
         current_time = datetime.now(tz=pytz.timezone(settings.TZ))
         timestamp = current_time.strftime("%Y%m%d%H%M%S")
         selector = ".c-city-weather-current"
-        image_path = IMAGES_PATH / f"weather_{self._location}_{key}_{timestamp}.png"
+        image_path = IMAGES_PATH / f"{self.__get_screenshot_image_pre_path(key=key)}_{timestamp}.png"
 
         logger.info(f"开始加载 {key} 页面: {self._weather_url}")
         self.__update_with_log_screenshot_time(current_time=current_time)
-        with browser.new_context(**playwright.devices[device]) as context:
+        logger.info(playwright.devices)
+        with browser.new_context(**playwright.devices[device.get("device")]) as context:
             with context.new_page() as page:
                 try:
+                    size = device.get("size")
+                    if size:
+                        page.set_viewport_size(device.get("size"))
                     page.goto(self._weather_url)
                     page.wait_for_selector(selector, timeout=self._screenshot_timeout * 1000)
                     logger.info(f"{key} 页面加载成功，标题: {page.title()}")
@@ -602,12 +683,13 @@ class WeatherWidget(_PluginBase):
                         if box:
                             # 计算新的裁剪区域，每边缩进8px，从而避免border-radius
                             clip = {
-                                "x": box["x"] + 8,
-                                "y": box["y"] + 8,
-                                "width": box["width"] - 16,
-                                "height": box["height"] - 16
+                                "x": box["x"] + 6,
+                                "y": box["y"] + 6,
+                                "width": box["width"] - 12,
+                                "height": box["height"] - 12
                             }
                             # 截图并保存
+                            # element.screenshot(path=image_path)
                             page.screenshot(path=image_path, clip=clip)
                             logger.info(f"{key} 截图成功，截图路径: {image_path}")
                         else:
@@ -624,7 +706,8 @@ class WeatherWidget(_PluginBase):
 
     def __manage_images(self, key: str, max_files: int = 5):
         """管理图片文件，确保每种类型最多保留 max_files 张"""
-        files = sorted(IMAGES_PATH.glob(f"weather_{self._location}_{key}_*.png"), key=lambda x: x.stat().st_mtime)
+        files = sorted(IMAGES_PATH.glob(f"{self.__get_screenshot_image_pre_path(key=key)}_*.png"),
+                       key=lambda x: x.stat().st_mtime)
         if len(files) > max_files:
             for file in files[:-max_files]:
                 file.unlink()
@@ -632,7 +715,7 @@ class WeatherWidget(_PluginBase):
 
     def __check_image(self) -> bool:
         """判断是否存在图片"""
-        files_exist = any(IMAGES_PATH.glob(f"weather_{self._location}_*.png"))
+        files_exist = any(IMAGES_PATH.glob(f"{self.__get_screenshot_image_pre_path()}_*.png"))
         if not files_exist:
             logger.error("没有找到图片信息")
         return files_exist
@@ -641,7 +724,7 @@ class WeatherWidget(_PluginBase):
         """获取指定key的最新图片路径"""
         # 搜索所有匹配的图片文件，并按修改时间排序
         try:
-            latest_image = max(IMAGES_PATH.glob(f"weather_{self._location}_{key}_*.png"),
+            latest_image = max(IMAGES_PATH.glob(f"{self.__get_screenshot_image_pre_path(key=key)}_*.png"),
                                key=lambda x: x.stat().st_mtime)
             return latest_image
         except ValueError:
@@ -700,7 +783,8 @@ class WeatherWidget(_PluginBase):
         """保存插件数据"""
         self.save_data("location", data)
 
-    def __clear_image(self):
+    @staticmethod
+    def __clear_image():
         """清理缓存图片"""
         # 检查目录是否存在
         if IMAGES_PATH.exists():
@@ -712,17 +796,31 @@ class WeatherWidget(_PluginBase):
 
     @staticmethod
     def detect_device_type(user_agent: str) -> str:
+        """根据UA获取设备类型"""
         logger.info(f"detect_device_type user_agent: {user_agent}")
         # 定义移动设备的关键字列表
         mobile_keywords = ['Mobile', 'Android', 'iPhone', 'iPad']
-        # 定义桌面设备的关键字列表
-        desktop_keywords = ['Windows', 'Macintosh', 'Linux']
 
         # 检查UA中是否包含移动设备的关键字
         for keyword in mobile_keywords:
             if keyword in user_agent:
-                logger.info(f"device_type is Mobile")
+                logger.info(f"当前访问设备类型为 Mobile")
                 return 'Mobile'
 
-        logger.info(f"device_type is Desktop")
+        logger.info(f"当前访问设备类型为 Desktop")
         return 'Desktop'
+
+    def __get_screenshot_type(self):
+        """获取截图类型"""
+        return "border" if self._border else "default"
+
+    def __get_screenshot_device(self) -> Optional[dict]:
+        """获取截图设备信息"""
+        screenshot_type = self._screenshot_type
+        screenshot_devices = SCREENSHOT_DEVICES.get(screenshot_type)
+        return screenshot_devices
+
+    def __get_screenshot_image_pre_path(self, key: str = None) -> str:
+        """获取截图前置路径"""
+        image_path = f"weather_{self._location}_{self._screenshot_type}"
+        return f"{image_path}_{key}" if key else image_path
