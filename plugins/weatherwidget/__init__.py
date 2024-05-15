@@ -659,7 +659,7 @@ class WeatherWidget(_PluginBase):
 
         logger.info(f"开始加载 {key} 页面: {self._weather_url}")
         self.__update_with_log_screenshot_time(current_time=current_time)
-        logger.info(playwright.devices)
+        # logger.info(playwright.devices)
         with browser.new_context(**playwright.devices[device.get("device")]) as context:
             with context.new_page() as page:
                 try:
