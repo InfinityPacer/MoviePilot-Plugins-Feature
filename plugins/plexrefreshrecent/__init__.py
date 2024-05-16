@@ -3,14 +3,15 @@ from datetime import datetime, timedelta
 from typing import Any, List, Dict, Tuple
 
 import pytz
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 from app.core.config import settings
 from app.core.event import eventmanager, Event
 from app.log import logger
 from app.modules.plex import Plex
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, NotificationType
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 
 lock = threading.Lock()
 
@@ -23,7 +24,7 @@ class PlexRefreshRecent(_PluginBase):
     # 插件图标
     plugin_icon = "Plex_A.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -59,11 +60,12 @@ class PlexRefreshRecent(_PluginBase):
     # endregion
 
     def init_plugin(self, config: dict = None):
-        self._plex = Plex()
-
         if not config:
             logger.info("Plex元数据刷新服务启动失败，无法获取插件配置")
-            return False
+            return
+
+        if not self.__init_plex():
+            return
 
         self._enabled = config.get("enabled")
         self._cron = config.get("cron")
@@ -111,125 +113,6 @@ class PlexRefreshRecent(_PluginBase):
         if self._scheduler.get_jobs():
             self._scheduler.print_jobs()
             self._scheduler.start()
-
-    @staticmethod
-    def __get_date(offset_day):
-        """
-        获取相对于当前日期偏移指定天数的日期字符串。
-
-        Args:
-            offset_day (int): 偏移天数，正数表示未来，负数表示过去。
-
-        Returns:
-            str: 偏移后的日期字符串，格式为 "YYYY-MM-DD"。
-        """
-        current_time = datetime.now()
-        target_time = current_time + timedelta(days=offset_day)
-        target_date = target_time.strftime("%Y-%m-%d")
-        return target_date
-
-    @staticmethod
-    def __get_timestamp(offset_day):
-        """
-        获取相对于当前日期偏移指定天数的时间戳。
-
-        Args:
-            offset_day (int): 偏移天数，正数表示未来，负数表示过去。
-
-        Returns:
-            int: 偏移后的时间戳。
-        """
-        current_time = datetime.now()
-        target_time = current_time + timedelta(days=offset_day)
-        target_timestamp = int(target_time.timestamp())
-        return target_timestamp
-
-    @eventmanager.register(EventType.PluginAction)
-    def refresh_recent(self, event: Event = None):
-        if event:
-            logger.info(f"event： {event}")
-            event_data = event.event_data
-            if not event_data or event_data.get("action") != "refresh_plex_recent_event":
-                return
-
-        if not settings.MEDIASERVER:
-            logger.info(f"媒体库配置不正确，请检查")
-            return
-
-        if "plex" not in settings.MEDIASERVER:
-            logger.info(f"Plex配置不正确，请检查")
-            return
-
-        with lock:
-            logger.info(f"准备刷新最近入库元数据")
-            msg = ""
-            try:
-                success, count = self.__refresh_plex()
-                # 发送通知
-                if self._notify:
-                    if success:
-                        msg = f"元数据刷新完成，刷新条数：{count}"
-                    else:
-                        msg = "元数据刷新失败，请检查日志"
-            except Exception as e:
-                logger.error(e)
-                msg = f"元数据刷新失败，失败原因：{e}"
-
-        logger.info(f"已完成最近入库元数据刷新")
-        if self._notify:
-            self.post_message(
-                mtype=NotificationType.SiteMessage,
-                title=f"【Plex最近{self._offset_days}天元数据刷新】",
-                text=msg
-            )
-
-    def __refresh_plex(self) -> [bool, int]:
-        plex = self._plex.get_plex()
-
-        timestamp = self.__get_timestamp(-int(self._offset_days))
-        library_items = plex.library.search(limit=self._limit, **{'addedAt>': timestamp})
-
-        refreshed_items = {}
-        for item in library_items:
-            self.__refresh_metadata(item, refreshed_items)
-
-        return True, len(refreshed_items)
-
-    @staticmethod
-    def __refresh_metadata(item, refreshed_items):
-        """
-        递归刷新媒体元数据，但避免重复刷新已处理的项目。
-
-        参数:
-        - item: 要刷新的 Plex 媒体项。
-        - refreshed_items: 一个字典，用于记录已刷新的项目的ratingKey，避免重复刷新。
-        """
-        parent_rating_key = getattr(item, 'parentRatingKey', None)
-        grandparent_rating_key = getattr(item, 'grandparentRatingKey', None)
-
-        summary = getattr(item, 'summary', "")
-
-        parent_title = getattr(item, 'parentTitle', None)
-        grandparent_title = getattr(item, 'grandparentTitle', None)
-
-        parent_info = f"{parent_title} " if parent_title else ""
-        grandparent_info = f"{grandparent_title} " if grandparent_title else ""
-
-        # 检查当前项是否已刷新或其任一上级是否已刷新
-        if (item.ratingKey in refreshed_items or
-                (parent_rating_key and parent_rating_key in refreshed_items) or
-                (grandparent_rating_key and grandparent_rating_key in refreshed_items)):
-            logger.info(f"父级已刷新，跳过此项：{grandparent_info}{parent_info}{item.title} ({item.type})")
-            return
-
-        # 目前摘要为空且不是季度时，才进行刷新元数据处理
-        if not summary and item.TYPE != "season":
-            item.refresh()  # 触发元数据刷新
-            logger.info(f"刷新元数据已请求：{grandparent_info}{parent_info}{item.title} ({item.type})")
-            # 标记此项目已刷新
-            refreshed_items[item.ratingKey] = True
-        else:
-            logger.info(f"Summary不为空，无需刷新：{grandparent_info}{parent_info}{item.title} ({item.type})")
 
     def get_state(self) -> bool:
         return self._enabled
@@ -417,3 +300,136 @@ class PlexRefreshRecent(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             print(str(e))
+
+    def __init_plex(self) -> bool:
+        """初始化Plex"""
+        if not settings.MEDIASERVER:
+            logger.info(f"媒体库配置不正确，请检查")
+            return False
+
+        if "plex" not in settings.MEDIASERVER:
+            logger.info(f"没有配置Plex媒体库，请检查")
+            return False
+
+        if not self._plex:
+            self._plex = Plex().get_plex()
+
+        if self._plex:
+            logger.info(f"Plex配置不正确，请检查")
+
+        return True
+
+    @eventmanager.register(EventType.PluginAction)
+    def refresh_recent(self, event: Event = None):
+        if event:
+            logger.info(f"event： {event}")
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "refresh_plex_recent_event":
+                return
+
+        if not self.__init_plex():
+            return
+
+        with lock:
+            logger.info(f"准备刷新最近入库元数据")
+            msg = ""
+            try:
+                success, count = self.__refresh_plex()
+                # 发送通知
+                if self._notify:
+                    if success:
+                        msg = f"元数据刷新完成，刷新条数：{count}"
+                    else:
+                        msg = "元数据刷新失败，请检查日志"
+            except Exception as e:
+                logger.error(e)
+                msg = f"元数据刷新失败，失败原因：{e}"
+
+        logger.info(f"已完成最近入库元数据刷新")
+        if self._notify:
+            self.post_message(
+                mtype=NotificationType.SiteMessage,
+                title=f"【Plex最近{self._offset_days}天元数据刷新】",
+                text=msg
+            )
+
+    def __refresh_plex(self) -> [bool, int]:
+        if not self.__init_plex():
+            return False, 0
+
+        timestamp = self.__get_timestamp(-int(self._offset_days))
+        library_items = self._plex.library.search(limit=self._limit, **{'addedAt>': timestamp})
+
+        refreshed_items = {}
+        for item in library_items:
+            self.__refresh_metadata(item, refreshed_items)
+
+        return True, len(refreshed_items)
+
+    @staticmethod
+    def __refresh_metadata(item, refreshed_items):
+        """
+        递归刷新媒体元数据，但避免重复刷新已处理的项目。
+
+        参数:
+        - item: 要刷新的 Plex 媒体项。
+        - refreshed_items: 一个字典，用于记录已刷新的项目的ratingKey，避免重复刷新。
+        """
+        parent_rating_key = getattr(item, 'parentRatingKey', None)
+        grandparent_rating_key = getattr(item, 'grandparentRatingKey', None)
+
+        summary = getattr(item, 'summary', "")
+
+        parent_title = getattr(item, 'parentTitle', None)
+        grandparent_title = getattr(item, 'grandparentTitle', None)
+
+        parent_info = f"{parent_title} " if parent_title else ""
+        grandparent_info = f"{grandparent_title} " if grandparent_title else ""
+
+        # 检查当前项是否已刷新或其任一上级是否已刷新
+        if (item.ratingKey in refreshed_items or
+                (parent_rating_key and parent_rating_key in refreshed_items) or
+                (grandparent_rating_key and grandparent_rating_key in refreshed_items)):
+            logger.info(f"父级已刷新，跳过此项：{grandparent_info}{parent_info}{item.title} ({item.type})")
+            return
+
+        # 目前摘要为空且不是季度时，才进行刷新元数据处理
+        if not summary and item.TYPE != "season":
+            item.refresh()  # 触发元数据刷新
+            logger.info(f"刷新元数据已请求：{grandparent_info}{parent_info}{item.title} ({item.type})")
+            # 标记此项目已刷新
+            refreshed_items[item.ratingKey] = True
+        else:
+            logger.info(f"Summary不为空，无需刷新：{grandparent_info}{parent_info}{item.title} ({item.type})")
+
+    @staticmethod
+    def __get_date(offset_day):
+        """
+        获取相对于当前日期偏移指定天数的日期字符串。
+
+        Args:
+            offset_day (int): 偏移天数，正数表示未来，负数表示过去。
+
+        Returns:
+            str: 偏移后的日期字符串，格式为 "YYYY-MM-DD"。
+        """
+        current_time = datetime.now()
+        target_time = current_time + timedelta(days=offset_day)
+        target_date = target_time.strftime("%Y-%m-%d")
+        return target_date
+
+    @staticmethod
+    def __get_timestamp(offset_day):
+        """
+        获取相对于当前日期偏移指定天数的时间戳。
+
+        Args:
+            offset_day (int): 偏移天数，正数表示未来，负数表示过去。
+
+        Returns:
+            int: 偏移后的时间戳。
+        """
+        current_time = datetime.now()
+        target_time = current_time + timedelta(days=offset_day)
+        target_timestamp = int(target_time.timestamp())
+        return target_timestamp
