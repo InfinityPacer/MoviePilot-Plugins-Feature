@@ -56,6 +56,8 @@ class BrushManager(_PluginBase):
     _move_path = None
     # 种子分类
     _category = None
+    # 种子标签
+    _tag = None
     # 开启通知
     _notify = None
     # 自动分类
@@ -90,6 +92,7 @@ class BrushManager(_PluginBase):
         self._downloader = config.get("downloader", None)
         self._move_path = config.get("move_path", None)
         self._category = config.get("category", None)
+        self._tag = config.get("tag", None)
         self._notify = config.get("notify", False)
         self._auto_category = config.get("auto_category", False)
         self._mp_tag = config.get("mp_tag", False)
@@ -210,7 +213,7 @@ class BrushManager(_PluginBase):
                                                 'component': 'VCol',
                                                 'props': {
                                                     "cols": 12,
-                                                    "md": 4
+                                                    "md": 3
                                                 },
                                                 'content': [
                                                     {
@@ -230,7 +233,7 @@ class BrushManager(_PluginBase):
                                                 'component': 'VCol',
                                                 'props': {
                                                     "cols": 12,
-                                                    "md": 4
+                                                    "md": 3
                                                 },
                                                 'content': [
                                                     {
@@ -248,7 +251,7 @@ class BrushManager(_PluginBase):
                                                 'component': 'VCol',
                                                 'props': {
                                                     'cols': 12,
-                                                    'md': 4
+                                                    'md': 3
                                                 },
                                                 'content': [
                                                     {
@@ -257,6 +260,24 @@ class BrushManager(_PluginBase):
                                                             'model': 'category',
                                                             'label': '种子分类',
                                                             'items': category_options,
+                                                            "clearable": True
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                'component': 'VCol',
+                                                'props': {
+                                                    'cols': 12,
+                                                    'md': 3
+                                                },
+                                                'content': [
+                                                    {
+                                                        'component': 'VTextField',
+                                                        'props': {
+                                                            'model': 'tag',
+                                                            'label': '添加种子标签',
+                                                            'placeholder': '如：待转移,剧情',
                                                             "clearable": True
                                                         }
                                                     }
@@ -545,6 +566,16 @@ class BrushManager(_PluginBase):
                     if not remove_result:
                         raise Exception(f"「{self._organize_tag}」标签移除失败，请检查下载器连接")
                     downloader.set_torrents_tag(ids=[torrent_hash], tags=[settings.TORRENT_TAG])
+                    logger.info(f"MP标签添加成功 - {torrent_hash}")
+                except Exception as e:
+                    logger.error(f"设置MP标签失败，种子哈希：{torrent_hash}，错误：{str(e)}")
+                    success = False
+
+            if self._tag and success:
+                try:
+                    logger.info(f"正在为种子「{torrent_title}」[{torrent_hash}] "
+                                f"添加「{self._tag}」标签")
+                    downloader.set_torrents_tag(ids=[torrent_hash], tags=[self._tag])
                     logger.info(f"标签添加成功 - {torrent_hash}")
                 except Exception as e:
                     logger.error(f"设置标签失败，种子哈希：{torrent_hash}，错误：{str(e)}")
