@@ -1,9 +1,11 @@
 from typing import Any, List, Dict, Tuple
 
 from app.core.plugin import PluginManager
+from app.db.systemconfig_oper import SystemConfigOper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.scheduler import Scheduler
+from app.schemas.types import SystemConfigKey
 
 
 class PluginReload(_PluginBase):
@@ -14,7 +16,7 @@ class PluginReload(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reload.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -55,17 +57,7 @@ class PluginReload(_PluginBase):
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        plugin_manager = PluginManager()
-        # 获取本地所有插件的列表
-        local_plugins = plugin_manager.get_local_plugins()
-        # 遍历 local_plugins，生成插件类型选项
-        plugin_options = []
-
-        for index, local_plugin in enumerate(local_plugins, start=1):
-            plugin_options.append({
-                "title": f"{index}. {local_plugin.plugin_name} v{local_plugin.plugin_version}",
-                "value": local_plugin.id
-            })
+        plugin_options = self.__get_local_plugin_options()
 
         return [
             {
@@ -181,3 +173,27 @@ class PluginReload(_PluginBase):
                 config_mapping["plugin_id"] = self._plugin_id
 
         self.update_config(config_mapping)
+
+    @staticmethod
+    def __get_local_plugin_options() -> []:
+        """获取本地插件实例选项"""
+        plugin_manager = PluginManager()
+
+        # 从系统配置获取用户已安装的插件 ID 列表
+        installed_plugins = SystemConfigOper().get(SystemConfigKey.UserInstalledPlugins) or []
+
+        plugins = getattr(plugin_manager, '_plugins', {})
+
+        # 过滤获取已安装的插件
+        local_plugins = [(plugin_id, plugin) for plugin_id, plugin in plugins.items()
+                         if plugin_id in installed_plugins]
+
+        # 构建插件选项卡列表
+        plugin_options = []
+        for index, (plugin_id, plugin) in enumerate(local_plugins, start=1):
+            plugin_options.append({
+                "title": f"{index}. {plugin.plugin_name} v{plugin.plugin_version}",
+                "value": plugin_id
+            })
+
+        return plugin_options
