@@ -57,7 +57,7 @@ class WeatherWidget(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -80,6 +80,8 @@ class WeatherWidget(_PluginBase):
     _location = None
     # weather_url
     _weather_url = None
+    # weather_background
+    _weather_background = None
     # location_url
     _location_url = None
     # last_screenshot_time
@@ -112,6 +114,8 @@ class WeatherWidget(_PluginBase):
         self._location_url = config.get("location_url", "")
         self._last_screenshot_time = None
         self._screenshot_type = self.__get_screenshot_type()
+        self._weather_background = config.get("weather_background",
+                                              "linear-gradient(225deg, #fee5ca, #e9f0ff 55%, #dce3fb)")
 
         if self._clear_cache:
             self.__save_data({})
@@ -197,7 +201,7 @@ class WeatherWidget(_PluginBase):
                         'style': {
                             'position': 'relative',
                             'height': 'auto',
-                            'background': 'linear-gradient(225deg, #fee5ca, #e9f0ff 55%, #dce3fb)',
+                            'background': f'{self._weather_background}',
                             'padding': "0.625rem 0"
                         }
                     },
@@ -528,7 +532,7 @@ class WeatherWidget(_PluginBase):
                 self._scheduler.remove_all_jobs()
                 if self._scheduler.running:
                     self._event.set()
-                    # self._scheduler.shutdown()
+                    self._scheduler.shutdown(wait=False)
                     self._event.clear()
                 self._scheduler = None
         except Exception as e:
@@ -541,7 +545,8 @@ class WeatherWidget(_PluginBase):
                 "enabled": self._enabled,
                 "border": self._border,
                 "location": self._location,
-                "location_url": self._location_url
+                "location_url": self._location_url,
+                "weather_background": self._weather_background
             })
 
     def invoke_service(self, request: Request, location: str, apikey: str) -> Any:
@@ -668,6 +673,7 @@ class WeatherWidget(_PluginBase):
                         page.set_viewport_size(device.get("size"))
                     page.goto(self._weather_url)
                     page.wait_for_selector(selector, timeout=self._screenshot_timeout * 1000)
+                    self.__reset_weather_style(page=page)
                     logger.info(f"{key} 页面加载成功，标题: {page.title()}")
                     self.__update_with_log_screenshot_time(current_time=datetime.now(tz=pytz.timezone(settings.TZ)))
                     element = page.query_selector(selector)
@@ -697,6 +703,25 @@ class WeatherWidget(_PluginBase):
                 except Exception as e:
                     logger.error(f"{key} 截图失败，URL: {self._weather_url}, 错误：{e}")
                     self.__update_with_log_screenshot_time(current_time=None)
+
+    def __reset_weather_style(self, page: Any):
+        """重置天气样式"""
+        # 获取指定元素
+        weather_element = page.query_selector('.c-city-weather-current')
+
+        # 获取元素的 CSS 样式
+        # css_background = weather_element.evaluate("el => getComputedStyle(el).background")
+        css_background_image = weather_element.evaluate("el => getComputedStyle(el).backgroundImage")
+
+        # if css_background:
+        #     self._weather_background = css_background
+        if css_background_image:
+            self._weather_background = css_background_image
+        else:
+            self._weather_background = "linear-gradient(225deg, #fee5ca, #e9f0ff 55%, #dce3fb)"
+
+        self.__update_config()
+        logger.info(f"更新天气背景样式为：{self._weather_background}")
 
     def __manage_images(self, key: str, max_files: int = 5):
         """管理图片文件，确保每种类型最多保留 max_files 张"""
