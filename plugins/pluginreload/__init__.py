@@ -16,7 +16,7 @@ class PluginReload(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reload.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -175,7 +175,7 @@ class PluginReload(_PluginBase):
         self.update_config(config_mapping)
 
     @staticmethod
-    def __get_local_plugin_options() -> []:
+    def __get_local_plugin_options() -> List[Dict[str, Any]]:
         """获取本地插件实例选项"""
         plugin_manager = PluginManager()
 
@@ -184,15 +184,26 @@ class PluginReload(_PluginBase):
 
         plugins = getattr(plugin_manager, '_plugins', {})
 
-        # 过滤获取已安装的插件
-        local_plugins = [(plugin_id, plugin) for plugin_id, plugin in plugins.items()
-                         if plugin_id in installed_plugins]
+        # 过滤并获取已安装的插件
+        local_plugins = []
+        for plugin_id in installed_plugins:
+            if plugin_id in plugins:
+                plugin = plugins[plugin_id]
+                plugin_info = (plugin.plugin_name, plugin.plugin_version, plugin.plugin_order)
+            else:
+                # 对于找不到的插件，创建一个默认插件元组
+                plugin_info = (f"{plugin_id}", f"{1.0}", 1000)
+
+            local_plugins.append((plugin_id, plugin_info))
+
+        # 根据插件顺序排序
+        local_plugins = sorted(local_plugins, key=lambda x: x[1][2])  # 使用元组的顺序字段排序
 
         # 构建插件选项卡列表
         plugin_options = []
-        for index, (plugin_id, plugin) in enumerate(local_plugins, start=1):
+        for index, (plugin_id, (plugin_name, plugin_version, plugin_order)) in enumerate(local_plugins, start=1):
             plugin_options.append({
-                "title": f"{index}. {plugin.plugin_name} v{plugin.plugin_version}",
+                "title": f"{index}. {plugin_name} v{plugin_version}",  # 使用解构的方式获取名称和版本
                 "value": plugin_id
             })
 
