@@ -138,11 +138,12 @@
         "name": "天气",
         "description": "支持在仪表盘中显示实时天气小部件。",
         "labels": "工具",
-        "version": "1.4",
+        "version": "1.5",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png",
         "author": "InfinityPacer",
         "level": 1,
         "history": {
+            "v1.5": "优化了天气显示效果，可以根据日出和日落时间自动切换不同的主题背景，并可根据设备选择不同的适配模式",
             "v1.4": "优化不同天气下的背景显示效果",
             "v1.3": "优化无边框显示效果，支持切换显示边框，进一步优化性能",
             "v1.2": "精准匹配城市，并支持无边框显示，需要主程序升级v1.8.8+版本",
