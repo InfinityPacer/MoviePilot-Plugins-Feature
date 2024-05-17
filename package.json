@@ -150,5 +150,17 @@
             "v1.1": "性能优化以及天气图片显示优化",
             "v1.0": "增加天气插件，支持在仪表盘中显示实时天气小部件"
         }
+    },
+    "PluginReOrder": {
+        "name": "插件自定义排序",
+        "description": "支持将插件按自定义顺序排序。",
+        "labels": "插件管理",
+        "version": "1.0",
+        "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/reorder.png",
+        "author": "InfinityPacer",
+        "level": 1,
+        "history": {
+            "v1.0": "增加插件自定义排序插件，支持将插件按自定义顺序排序"
+        }
     }
 }
