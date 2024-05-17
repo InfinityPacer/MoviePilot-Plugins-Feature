@@ -471,27 +471,27 @@ class WeatherWidget(_PluginBase):
                             }
                         ]
                     },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '注意：因涉及新增API，安装/更新插件后需重启Docker后生效'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
+                    # {
+                    #     'component': 'VRow',
+                    #     'content': [
+                    #         {
+                    #             'component': 'VCol',
+                    #             'props': {
+                    #                 'cols': 12,
+                    #             },
+                    #             'content': [
+                    #                 {
+                    #                     'component': 'VAlert',
+                    #                     'props': {
+                    #                         'type': 'info',
+                    #                         'variant': 'tonal',
+                    #                         'text': '注意：因涉及新增API，安装/更新插件后需重启Docker后生效'
+                    #                     }
+                    #                 }
+                    #             ]
+                    #         }
+                    #     ]
+                    # },
                     {
                         'component': 'VRow',
                         'content': [
