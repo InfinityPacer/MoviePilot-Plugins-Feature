@@ -28,7 +28,7 @@ class WebDAVBackup(_PluginBase):
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/webdavbackup.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -62,6 +62,8 @@ class WebDAVBackup(_PluginBase):
     _onlyonce = False
     # 开启通知
     _notify = False
+    # 忽略校验
+    _disable_check = False
     # 定时器
     _scheduler = None
     # 退出事件
@@ -81,6 +83,7 @@ class WebDAVBackup(_PluginBase):
         self._cron = config.get("cron")
         self._notify = config.get("notify", False)
         self._onlyonce = config.get("onlyonce", False)
+        self._disable_check = config.get("disable_check", False)
 
         try:
             self._max_count = int(config.get("max_count", 0))
@@ -103,6 +106,9 @@ class WebDAVBackup(_PluginBase):
             'webdav_password': self._password,
             'webdav_digest_auth': self._digest_auth
         }
+
+        if self._disable_check:
+            webdav_config.update({"disable_check": True})
 
         self._client = Client(webdav_config)
         if not self._client:
@@ -158,7 +164,7 @@ class WebDAVBackup(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -174,23 +180,7 @@ class WebDAVBackup(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'onlyonce',
-                                            'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -206,7 +196,44 @@ class WebDAVBackup(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 6
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'onlyonce',
+                                            'label': '立即运行一次',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'disable_check',
+                                            'label': '忽略校验'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -319,7 +346,28 @@ class WebDAVBackup(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '如备份失败，请检查日志，并确认WebDAV目录存在，如果存在中文字符，可以尝试进行Url编码后备份'
+                                            'text': '注意：如备份失败，请检查日志，并确认WebDAV目录存在，如果存在中文字符，可以尝试进行Url编码后重试'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '注意：如备份失败，并日志提示Remote parent for: ... not found，请尝试开启忽略校验后重试'
                                         }
                                     }
                                 ]

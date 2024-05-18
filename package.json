@@ -69,11 +69,12 @@
         "name": "WebDAV备份",
         "description": "定时通过WebDAV备份数据库和配置文件。",
         "labels": "工具",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/webdavbackup.png",
         "author": "InfinityPacer",
         "level": 1,
         "history": {
+            "v1.4": "支持开启忽略检验，适配部分网盘校验远程目录时抛出错误的问题",
             "v1.3": "修复备份文件错误命名，历史备份需手工清理",
             "v1.2": "优化部分逻辑及日志记录",
             "v1.1": "优化部分逻辑及日志记录",
