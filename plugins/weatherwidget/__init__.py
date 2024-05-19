@@ -8,14 +8,19 @@ from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config import settings
+from app.core.event import eventmanager, Event
 from app.core.plugin import PluginManager
 from app.log import logger
 from app.plugins import _PluginBase
+from app.schemas import NotificationType
+from app.schemas.types import EventType
 from app.utils.http import RequestUtils
 
 lock = threading.Lock()
@@ -55,11 +60,11 @@ class WeatherWidget(_PluginBase):
     # 插件名称
     plugin_name = "天气"
     # 插件描述
-    plugin_desc = "支持在仪表盘中显示实时天气小部件。"
+    plugin_desc = "定时推送天气，并在仪表盘中显示实时天气。"
     # 插件图标
     plugin_icon = "https://github.com/InfinityPacer/MoviePilot-Plugins/raw/main/icons/weatherwidget.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "InfinityPacer"
     # 作者主页
@@ -92,6 +97,12 @@ class WeatherWidget(_PluginBase):
     _weather_background = None
     # location_url
     _location_url = None
+    # 开启天气通知
+    _weather_notify = None
+    # 天气通知周期
+    _weather_notify_cron = None
+    # 消息类型
+    _weather_notify_type = None
     # last_screenshot_time
     _last_screenshot_time = None
     # min_screenshot_span
@@ -125,6 +136,9 @@ class WeatherWidget(_PluginBase):
         self._last_screenshot_time = None
         self._use_dark_mode = self.__should_use_dark_mode()
         self._adapt_mode = config.get("adapt_mode", "compatibility")
+        self._weather_notify = config.get("weather_notify", True)
+        self._weather_notify_cron = config.get("weather_notify_cron")
+        self._weather_notify_type = config.get("weather_notify_type", "SiteMessage")
         self._screenshot_type = self.__get_screenshot_type()
         self._weather_background = config.get("weather_background",
                                               "linear-gradient(225deg, #fee5ca, #e9f0ff 55%, #dce3fb)")
@@ -155,7 +169,15 @@ class WeatherWidget(_PluginBase):
             定义远程控制命令
             :return: 命令关键字、事件、描述、附带数据
             """
-        pass
+        return [
+            {
+                "cmd": "/weather_notify",
+                "event": EventType.PluginAction,
+                "desc": "实时天气",
+                "category": "工具",
+                "data": {"action": "weather_notify"},
+            }
+        ]
 
     def get_api(self) -> List[Dict[str, Any]]:
         """
@@ -349,7 +371,7 @@ class WeatherWidget(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -365,23 +387,7 @@ class WeatherWidget(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 3
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'auto_theme_enabled',
-                                            'label': '自动主题',
-                                        },
-                                    }
-                                ],
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 3
+                                    'md': 4
                                 },
                                 'content': [
                                     {
@@ -409,6 +415,85 @@ class WeatherWidget(_PluginBase):
                                     }
                                 ],
                             }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'auto_theme_enabled',
+                                            'label': '自动主题',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'weather_notify',
+                                            'label': '开启天气通知',
+                                        },
+                                    }
+                                ],
+                            },
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'weather_notify_cron',
+                                            'label': '天气通知周期',
+                                            'placeholder': '5位cron表达式',
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': False,
+                                            'chips': True,
+                                            'model': 'weather_notify_type',
+                                            'label': '消息类型',
+                                            'items': [{"title": item.value, "value": item.name}
+                                                      for item in NotificationType]
+                                        }
+                                    }
+                                ],
+                            },
                         ]
                     },
                     {
@@ -582,7 +667,9 @@ class WeatherWidget(_PluginBase):
             "enabled": False,
             "border": False,
             "auto_theme_enabled": True,
-            "adapt_mode": "compatibility"
+            "adapt_mode": "compatibility",
+            "weather_notify": True,
+            "weather_notify_cron": "0 8 * * *"
         }
 
     def get_page(self) -> List[dict]:
@@ -599,15 +686,28 @@ class WeatherWidget(_PluginBase):
             "kwargs": {} # 定时器参数
         }]
         """
+
+        services = []
+
         if self._enabled:
-            return [{
+            services.append({
                 "id": "RefreshWeather",
                 "name": "定时获取天气信息",
                 "trigger": "interval",
                 "func": self.__take_screenshots,
                 "kwargs": {"hours": self._refresh_interval}
-            }]
-        return []
+            })
+
+        if self._weather_notify and self._weather_notify_cron:
+            services.append({
+                "id": "NotifyWeather",
+                "name": "定时推送天气通知",
+                "trigger": CronTrigger.from_crontab(self._weather_notify_cron),
+                "func": self.notify_weather,
+                "kwargs": {}
+            })
+
+        return services
 
     def stop_service(self):
         """
@@ -635,6 +735,9 @@ class WeatherWidget(_PluginBase):
                 "weather_background": self._weather_background,
                 "auto_theme_enabled": self._auto_theme_enabled,
                 'adapt_mode': self._adapt_mode,
+                "weather_notify": self._weather_notify,
+                "weather_notify_cron": self._weather_notify_cron,
+                "weather_notify_type": self._weather_notify_type
             })
 
     def invoke_service(self, request: Request, location: str, apikey: str) -> Any:
@@ -1012,8 +1115,15 @@ class WeatherWidget(_PluginBase):
         """是否启用暗黑模式"""
         if not self._auto_theme_enabled:
             return False
+
         try:
-            response = RequestUtils(timeout=5).get_res(self._weather_url)
+            response = RequestUtils(timeout=10).get_res(self._weather_url)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"请求天气信息失败: {e}")
+            return None
+
+        try:
             # 正则表达式用于找到日出和日落时间
             sunrise_pattern = r'"rise":"(\d{2}:\d{2})"'
             sunset_pattern = r'"set":"(\d{2}:\d{2})"'
@@ -1049,3 +1159,83 @@ class WeatherWidget(_PluginBase):
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
             return False
+
+    @eventmanager.register(EventType.PluginAction)
+    def notify_weather(self, event: Event = None):
+        """推送天气通知"""
+        if not self._weather_notify:
+            return
+
+        if event:
+            logger.info(f"event： {event}")
+            event_data = event.event_data
+            if not event_data or event_data.get("action") != "weather_notify":
+                return
+
+        weather_report = self.__resolve_weather()
+        self.post_message(mtype=NotificationType[self._weather_notify_type], title="【实时天气】", text=weather_report)
+        return
+
+    def __resolve_weather(self) -> Optional[str]:
+        """解析当前天气"""
+        try:
+            response = RequestUtils(timeout=10).get_res(self._weather_url)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"请求天气信息失败: {e}")
+            return None
+
+        try:
+            # 使用 BeautifulSoup 解析 HTML
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            weather_report_parts = []
+
+            # 提取当前时间
+            current_time = soup.find("p", class_="current-time")
+            if current_time:
+                weather_report_parts.append(f"当前时间: {current_time.text.strip()}")
+
+            # 提取温度
+            temperature = soup.find("div", class_="current-live__item")
+            if temperature:
+                temperature = temperature.find_next_sibling().p
+                if temperature:
+                    weather_report_parts.append(f"温度: {temperature.text.strip()}")
+
+            # 提取天气状况
+            weather_condition = soup.find("div", class_="current-live__item")
+            if weather_condition:
+                weather_condition = weather_condition.find_next_sibling().p.find_next_sibling()
+                if weather_condition:
+                    weather_report_parts.append(f"天气状况: {weather_condition.text.strip()}")
+
+            # 提取空气质量
+            air_quality = soup.find("a", class_="air-tag")
+            if air_quality:
+                weather_report_parts.append(f"空气质量: {air_quality.text.strip()}")
+
+            # 提取基本天气数据
+            basic_items = soup.find_all("div", class_="current-basic___item")
+            for item in basic_items:
+                # 提取每个项目的内容(p0)和标题(p1)
+                p0 = item.find("p")
+                p1 = p0.find_next_sibling("p") if p0 else None
+
+                if p0 and p1:
+                    content = p0.text.strip()
+                    label = p1.text.strip()
+                    weather_report_parts.append(f"{label}: {content}")
+
+            # 提取天气汇总
+            weather_abstract = soup.find("div", class_="current-abstract")
+            if weather_abstract:
+                weather_report_parts.append(f"\n{weather_abstract.text.strip()}")
+
+            # 构建和返回最终的天气报告
+            if not weather_report_parts:
+                return "未能获取天气信息"
+            return "\n".join(weather_report_parts)
+        except Exception as e:
+            logger.error(f"解析天气信息时出错: {e}")
+            return None
